@@ -212,12 +212,23 @@
 #define VE_MEM_RESTRICT_START		0x310
 #define VE_MEM_RESTRICT_END		0x314
 
+// SCU's registers
 #define SCU_MISC_CTRL			0xC0
 #define  SCU_DPLL_SOURCE		BIT(20)
 
-#define SCU_CLK_SEL			0x284
-#define  SCU_VCLK_SEL			GENMASK(13, 11)
+#define SCU_CLK_SEL			0x288
+#define  SCU_SOC_DISPLAY_SEL		GENMASK(17, 12)
 
+#define SCU_CRT2CLK			0x350
+#define  SCU_CRT2CLK_N			GENMASK(31, 16)
+#define  SCU_CRT2CLK_R			GENMASK(15, 0)
+
+#define SCU_MULTI_FUNC_12		0x440
+#define  SCU_MULTI_FUNC_CPU_SLI_DIR	BIT(5)
+#define SCU_MULTI_FUNC_15		0x454
+#define  SCU_MULTI_FUNC_IO_SLI_DIR	BIT(21)
+
+// GFX's registers
 #define GFX_CTRL			0x60
 #define  GFX_CTRL_ENABLE		BIT(0)
 #define  GFX_CTRL_FMT			GENMASK(9, 7)
@@ -231,6 +242,17 @@
 #define  GFX_V_DISPLAY_TOTAL		GENMASK(11, 0)
 
 #define GFX_DISPLAY_ADDR		0x80
+
+enum {
+	VIDEO_CLK_25MHz = 0,
+	VIDEO_CLK_D1,
+	VIDEO_CLK_D2,
+	VIDEO_CLK_CRT1,
+	VIDEO_CLK_CRT2,
+	VIDEO_CLK_HPLL,
+	VIDEO_CLK_MPLL,
+	VIDEO_CLK_48MHz,
+};
 
 /*
  * VIDEO_MODE_DETECT_DONE:	a flag raised if signal lock
@@ -328,6 +350,7 @@ struct aspeed_video {
 	void __iomem *vga_base;
 	struct clk *eclk;
 	struct clk *vclk;
+	struct clk *crt2clk;
 	struct reset_control *reset;
 
 	struct device *dev;
@@ -557,7 +580,7 @@ static const struct v4l2_dv_timings_cap aspeed_video_timings_cap = {
 
 static const char * const format_str[] = {"Standard JPEG",
 	"Aspeed JPEG", "Partial JPEG"};
-static const char * const input_str[] = {"GFX", "BMC GFX", "MEMORY"};
+static const char * const input_str[] = {"GFX", "BMC GFX", "MEMORY", "DVI"};
 
 static unsigned int debug;
 static unsigned int dual_flag;
@@ -1424,6 +1447,30 @@ static void aspeed_video_get_resolution_gfx(struct aspeed_video *video,
 	video->v4l2_input_status = 0;
 }
 
+/*
+ * For ast2700 only. Due to hw design, the timing detection of DVI is
+ * in io-die. Thus, we need to use another hw to do this job.
+ */
+static void aspeed_video_get_resolution_dvi(struct aspeed_video *video,
+					    struct v4l2_bt_timings *det)
+{
+	//u32 mds, htotal, vtotal, val;
+
+	//// TODO: detect to get pixel
+	//mds = aspeed_video_read(v, VE_MODE_DETECT_STATUS);
+	//htotal = aspeed_video_read(v, VE_H_TOTAL_PIXELS);
+	//vtotal = FIELD_GET(VE_MODE_DETECT_V_LINES, mds);
+
+	det->height = 480;
+	det->width = 640;
+	video->v4l2_input_status = 0;
+
+	/* Enable mode-detect watchdog, resolution-change watchdog */
+	aspeed_video_update(video, VE_INTERRUPT_CTRL, 0,
+			    VE_INTERRUPT_MODE_DETECT_WD);
+	aspeed_video_update(video, VE_SEQ_CTRL, 0, VE_SEQ_CTRL_EN_WATCHDOG);
+}
+
 #define res_check(v) test_and_clear_bit(VIDEO_MODE_DETECT_DONE, &(v)->flags)
 
 static void aspeed_video_get_resolution_vga(struct aspeed_video *video,
@@ -1508,6 +1555,9 @@ static void aspeed_video_get_resolution_vga(struct aspeed_video *video,
 		return;
 	}
 
+	if (video->input == VIDEO_INPUT_DVI)
+		video->frame_right -= 1;
+
 	det->height = (video->frame_bottom - video->frame_top) + 1;
 	det->width = (video->frame_right - video->frame_left) + 1;
 	video->v4l2_input_status = 0;
@@ -1532,6 +1582,8 @@ static void aspeed_video_get_resolution(struct aspeed_video *video)
 
 	if (video->input == VIDEO_INPUT_GFX)
 		aspeed_video_get_resolution_gfx(video, det);
+	else if (video->input == VIDEO_INPUT_DVI && video->version == 7)
+		aspeed_video_get_resolution_dvi(video, det);
 	else
 		aspeed_video_get_resolution_vga(video, det);
 
@@ -1584,6 +1636,11 @@ static void aspeed_video_set_resolution(struct aspeed_video *video)
 		aspeed_video_update(video, VE_CTRL,
 				    VE_CTRL_INT_DE | VE_CTRL_DIRECT_FETCH,
 				    VE_CTRL_INT_DE);
+	} else if (video->input == VIDEO_INPUT_DVI) {
+		v4l2_dbg(1, debug, &video->v4l2_dev, "Capture: Sync Mode for external source\n");
+		aspeed_video_update(video, VE_CTRL,
+				    VE_CTRL_INT_DE | VE_CTRL_DIRECT_FETCH,
+				    0);
 	} else {
 		u32 ctrl, val, bpp;
 
@@ -1681,6 +1738,9 @@ static void aspeed_video_update_regs(struct aspeed_video *video)
 	if (video->input == VIDEO_INPUT_VGA && video->id == 0)
 		ctrl |= VE_CTRL_AUTO_OR_CURSOR;
 
+	if (video->input == VIDEO_INPUT_DVI)
+		ctrl |= VE_CTRL_SOURCE;
+
 	if (video->frame_rate)
 		ctrl |= FIELD_PREP(VE_CTRL_FRC, video->frame_rate);
 
@@ -1705,7 +1765,9 @@ static void aspeed_video_update_regs(struct aspeed_video *video)
 	aspeed_video_update(video, VE_SEQ_CTRL,
 			    video->jpeg_mode | VE_SEQ_CTRL_YUV420,
 			    seq_ctrl);
-	aspeed_video_update(video, VE_CTRL, VE_CTRL_FRC | VE_CTRL_AUTO_OR_CURSOR, ctrl);
+	aspeed_video_update(video, VE_CTRL,
+			    VE_CTRL_FRC | VE_CTRL_AUTO_OR_CURSOR |
+			    VE_CTRL_SOURCE, ctrl);
 	aspeed_video_update(video, VE_COMP_CTRL,
 			    VE_COMP_CTRL_DCT_LUM | VE_COMP_CTRL_DCT_CHR |
 			    VE_COMP_CTRL_EN_HQ | VE_COMP_CTRL_HQ_DCT_LUM |
@@ -1735,8 +1797,14 @@ static void aspeed_video_init_regs(struct aspeed_video *video)
 	aspeed_video_write(video, VE_SEQ_CTRL, VE_SEQ_CTRL_AUTO_COMP);
 	val = VE_CTRL_AUTO_OR_CURSOR |
 	      FIELD_PREP(VE_CTRL_CAPTURE_FMT, VIDEO_CAP_FMT_YUV_FULL_SWING);
-	if (video->version == 7)
-		val |= FIELD_PREP(VE_CTRL_CLK_DELAY, video->id + 1);
+	if (video->version == 7) {
+		if (video->input == VIDEO_INPUT_VGA)
+			val |= FIELD_PREP(VE_CTRL_CLK_DELAY, VIDEO_CLK_D1 + video->id);
+		else if (video->input == VIDEO_INPUT_DVI)
+			val |= FIELD_PREP(VE_CTRL_CLK_DELAY, VIDEO_CLK_CRT2);
+		else
+			val |= FIELD_PREP(VE_CTRL_CLK_DELAY, VIDEO_CLK_48MHz);
+	}
 	aspeed_video_write(video, VE_CTRL, val);
 	aspeed_video_write(video, VE_COMP_CTRL, VE_COMP_CTRL_RSVD);
 
@@ -1923,21 +1991,45 @@ static int aspeed_video_set_input(struct file *file, void *fh, unsigned int i)
 
 	video->input = i;
 
-	// modify dpll source per current input
 	if (video->version == 6) {
+		// modify dpll source per current input
 		if (video->input == VIDEO_INPUT_VGA)
 			regmap_update_bits(video->scu, SCU_MISC_CTRL, SCU_DPLL_SOURCE, 0);
 		else
 			regmap_update_bits(video->scu, SCU_MISC_CTRL, SCU_DPLL_SOURCE, SCU_DPLL_SOURCE);
+
+		// SLI direction: inverse if DVI
+		if (video->input == VIDEO_INPUT_DVI) {
+			regmap_update_bits(video->scu, SCU_MULTI_FUNC_12,
+					   SCU_MULTI_FUNC_CPU_SLI_DIR,
+					   SCU_MULTI_FUNC_CPU_SLI_DIR);
+			regmap_update_bits(video->scu, SCU_MULTI_FUNC_15,
+					   SCU_MULTI_FUNC_IO_SLI_DIR,
+					   SCU_MULTI_FUNC_IO_SLI_DIR);
+		} else {
+			regmap_update_bits(video->scu, SCU_MULTI_FUNC_12,
+					   SCU_MULTI_FUNC_CPU_SLI_DIR,
+					   0);
+			regmap_update_bits(video->scu, SCU_MULTI_FUNC_15,
+					   SCU_MULTI_FUNC_IO_SLI_DIR,
+					   0);
+		}
 	} else if (video->version == 7) {
-		if (video->input == VIDEO_INPUT_VGA)
-			regmap_update_bits(video->scu, SCU_CLK_SEL, SCU_VCLK_SEL, 0);
-		else
-			regmap_update_bits(video->scu, SCU_CLK_SEL, SCU_VCLK_SEL, SCU_VCLK_SEL);
+		if (video->input == VIDEO_INPUT_DVI) {
+			// CRT2CLK = 500 * R / N
+			regmap_write(video->scu, SCU_CRT2CLK,
+				     FIELD_PREP(SCU_CRT2CLK_N, 50) | FIELD_PREP(SCU_CRT2CLK_R, 15));
+
+			regmap_write(video->scu, SCU_CLK_SEL, FIELD_PREP(SCU_SOC_DISPLAY_SEL, 8));
+		} else {
+			regmap_write(video->scu, SCU_CLK_SEL, FIELD_PREP(SCU_SOC_DISPLAY_SEL, 0));
+		}
 	}
 
+	aspeed_video_update_regs(video);
+
 	// update signal status
-	if (i == VIDEO_INPUT_MEM) {
+	if (video->input == VIDEO_INPUT_MEM) {
 		video->v4l2_input_status = 0;
 	} else {
 		aspeed_video_get_resolution(video);
@@ -2751,6 +2843,19 @@ static int aspeed_video_init(struct aspeed_video *video)
 	if (rc)
 		goto err_unprepare_eclk;
 
+	if (video->version > 6) {
+		video->crt2clk = devm_clk_get(dev, "crt2clk");
+		if (IS_ERR(video->crt2clk)) {
+			dev_err(dev, "Unable to get CRT2CLK\n");
+			rc = PTR_ERR(video->crt2clk);
+			goto err_unprepare_vclk;
+		}
+
+		rc = clk_prepare_enable(video->crt2clk);
+		if (rc)
+			goto err_unprepare_vclk;
+	}
+
 	of_reserved_mem_device_init(dev);
 
 	rc = dma_set_mask_and_coherent(dev, DMA_BIT_MASK(mask_size));
@@ -2774,6 +2879,9 @@ static int aspeed_video_init(struct aspeed_video *video)
 
 err_release_reserved_mem:
 	of_reserved_mem_device_release(dev);
+	if (video->version > 6)
+		clk_disable_unprepare(video->crt2clk);
+err_unprepare_vclk:
 	clk_unprepare(video->vclk);
 err_unprepare_eclk:
 	clk_unprepare(video->eclk);
@@ -2869,6 +2977,8 @@ static void aspeed_video_remove(struct platform_device *pdev)
 
 	aspeed_video_debugfs_remove(video);
 
+	if (video->version > 6)
+		clk_disable_unprepare(video->crt2clk);
 	clk_unprepare(video->vclk);
 	clk_unprepare(video->eclk);
 
