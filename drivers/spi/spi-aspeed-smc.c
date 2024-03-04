@@ -30,6 +30,7 @@
 
 #define INTR_CTRL_STATUS_REG		0x08
 #define   SPI_DMA_STATUS		BIT(11)
+#define   SPI_DMA_IRQ_STS		BIT(19)
 
 #define CMD_CTRL_REG			0xc
 
@@ -57,8 +58,15 @@
 /* CEx Address Decoding Range Register */
 #define CE0_SEGMENT_ADDR_REG		0x30
 
+#define CS_MODE_CTRL_REG		0x54
+#define   SPI_CS_TO_DIS			BIT(26)
+#define   SPI_CS_CONTINUOUS		BIT(16)
+
 #define HOST_DIRECT_ACCESS_CMD_CTRL4	0x6c
 #define HOST_DIRECT_ACCESS_CMD_CTRL2	0x74
+
+#define DMA_HI_ADDR_REG			0x7c
+#define   DMA_DRAM_HI_ADDR		(0x4)
 
 #define DMA_CTRL_REG			0x80
 #define   SPI_DMA_ENABLE		BIT(0)
@@ -75,7 +83,7 @@
 /* CEx Read timing compensation register */
 #define CE0_TIMING_COMPENSATION_REG	0x94
 
-#define ASPEED_SPI_OP_BUF_LEN		0x4000
+#define ASPEED_SPI_OP_BUF_LEN		0x10000
 
 static spinlock_t g_lock;
 
@@ -109,6 +117,7 @@ struct aspeed_spi_data {
 	u32	hclk_mask;
 	u32	hdiv_max;
 	size_t	min_window_sz;
+	u32	ver;
 
 	int (*adjust_window)(struct aspeed_spi *aspi);
 	u64 (*segment_start)(struct aspeed_spi *aspi, u32 reg);
@@ -151,7 +160,7 @@ struct aspeed_spi {
 	int			 irq;
 	struct completion	 dma_done;
 	dma_addr_t		 dma_addr_phy;
-	void			*op_buf;
+	void __iomem		*op_buf;
 	u32			 flag;
 };
 
@@ -530,8 +539,8 @@ static int aspeed_spi_exec_op_normal_mode(struct spi_mem *mem,
  * Thus, a 4-byte aligned buffer should be allocated previously and
  * CPU needs to copy data from it after DMA done.
  */
-static ssize_t aspeed_spi_dirmap_dma_read(struct spi_mem_dirmap_desc *desc,
-					  u64 offs, size_t len, void *buf)
+static ssize_t aspeed_2600_spi_dirmap_dma_read(struct spi_mem_dirmap_desc *desc,
+					       u64 offs, size_t len, void *buf)
 {
 	int ret = 0;
 	u32 timeout = 0;
@@ -617,8 +626,9 @@ end:
 	return ret ? 0 : len;
 }
 
-static ssize_t aspeed_spi_dirmap_dma_write(struct spi_mem_dirmap_desc *desc,
-					   u64 offs, size_t len, const void *buf)
+static ssize_t aspeed_2600_spi_dirmap_dma_write(struct spi_mem_dirmap_desc *desc,
+						u64 offs, size_t len,
+						const void *buf)
 {
 	int ret = 0;
 	struct aspeed_spi *aspi = spi_controller_get_devdata(desc->mem->spi->controller);
@@ -688,7 +698,183 @@ static ssize_t aspeed_spi_dirmap_dma_write(struct spi_mem_dirmap_desc *desc,
 	return ret ? 0 : len;
 }
 
-static irqreturn_t aspeed_spi_dma_isr(int irq, void *dev_id)
+/*
+ * When DMA memory mode is enabled, there is a limitation for AST2700,
+ * both DMA source and destination address should be 4-byte aligned.
+ * Thus, a 4-byte aligned buffer should be allocated previously and
+ * CPU needs to copy data from it after DMA done.
+ */
+static ssize_t aspeed_2700_spi_dirmap_dma_read(struct spi_mem_dirmap_desc *desc,
+					       u64 offs, size_t len, void *buf)
+{
+	int ret = 0;
+	u32 timeout = 0;
+	struct aspeed_spi *aspi = spi_controller_get_devdata(desc->mem->spi->controller);
+	struct device *dev = aspi->dev;
+	struct aspeed_spi_chip *chip = &aspi->chips[spi_get_chipselect(desc->mem->spi, 0)];
+	struct spi_mem_op op_tmpl = desc->info.op_tmpl;
+	u32 reg_val;
+	u32 extra;
+	u32 tb_read_len = len;
+	u32 read_len;
+	u32 buf_offs = 0;
+	u32 flash_offs = (u32)offs;
+	u32 flash_addr;
+
+	if (chip->ahb_window_sz < offs + len) {
+		dev_err(dev, "read range exceeds flash remapping size\n");
+		return 0;
+	}
+
+	dev_dbg(dev, "read op:0x%x, addr:0x%llx, len:0x%zx\n",
+		op_tmpl.cmd.opcode, offs, len);
+
+	while (tb_read_len > 0) {
+		/* read max 10KB bytes once */
+		read_len = MAX_READ_SZ_ONCE - (flash_offs % MAX_READ_SZ_ONCE);
+		if (tb_read_len < read_len)
+			read_len = tb_read_len;
+
+		/* For AST2600 SPI DMA, flash offset should be 4 byte aligned */
+		extra = flash_offs % 4;
+		if (extra != 0) {
+			flash_offs = (flash_offs / 4) * 4;
+			read_len += extra;
+		}
+
+		reg_val = readl(aspi->regs + CS_MODE_CTRL_REG);
+		reg_val |= (SPI_CS_CONTINUOUS | SPI_CS_TO_DIS);
+		writel(reg_val, aspi->regs + CS_MODE_CTRL_REG);
+
+		writel(chip->ctl_val[ASPEED_SPI_READ], chip->ctl);
+
+		/*
+		 * - Don't use dma_map_single here, since we cannot make sure the buf's
+		 *   start address is 4-byte-aligned.
+		 * - Only support from SPI flash to DRAM.
+		 */
+		flash_addr = (chip->ahb_base_phy + flash_offs) & 0x7fffffff;
+
+		writel(DMA_DRAM_HI_ADDR, aspi->regs + DMA_HI_ADDR_REG);
+		writel(0x0, aspi->regs + DMA_CTRL_REG);
+		writel((u32)aspi->dma_addr_phy, aspi->regs + DMA_RAM_ADDR_REG);
+		writel(flash_addr, aspi->regs + DMA_FLASH_ADDR_REG);
+		writel(read_len - 1, aspi->regs + DMA_LEN_REG);
+
+		/* enable DMA irq */
+		reg_val = readl(aspi->regs + INTR_CTRL_STATUS_REG);
+		reg_val |= SPI_DMA_IRQ_EN;
+		writel(reg_val, aspi->regs + INTR_CTRL_STATUS_REG);
+
+		reinit_completion(&aspi->dma_done);
+
+		/* enable read DMA */
+		writel(0x1, aspi->regs + DMA_CTRL_REG);
+		timeout = wait_for_completion_timeout(&aspi->dma_done,
+						      msecs_to_jiffies(2000));
+
+		writel(chip->ctl_val[ASPEED_SPI_READ] | CTRL_CE_STOP_ACTIVE,
+		       chip->ctl);
+
+		if (timeout == 0) {
+			writel(0x0, aspi->regs + DMA_CTRL_REG);
+			dev_err(dev, "dma read data timeout %d\n", ret);
+			ret = -1;
+			goto end;
+		} else {
+			memcpy_fromio(buf + buf_offs, aspi->op_buf + extra, read_len - extra);
+		}
+
+		read_len -= extra;
+
+		buf_offs += read_len;
+		flash_offs += read_len;
+		tb_read_len -= read_len;
+	}
+
+end:
+	writel(0x0, aspi->regs + CS_MODE_CTRL_REG);
+	writel(chip->ctl_val[ASPEED_SPI_READ], chip->ctl);
+
+	return ret ? 0 : len;
+}
+
+static ssize_t aspeed_2700_spi_dirmap_dma_write(struct spi_mem_dirmap_desc *desc,
+						u64 offs, size_t len, const void *buf)
+{
+	int ret = 0;
+	struct aspeed_spi *aspi = spi_controller_get_devdata(desc->mem->spi->controller);
+	struct device *dev = aspi->dev;
+	struct aspeed_spi_chip *chip = &aspi->chips[spi_get_chipselect(desc->mem->spi, 0)];
+	u32 timeout = 0;
+	u32 reg_val;
+	struct spi_mem_op op_tmpl = desc->info.op_tmpl;
+	u32 flash_addr;
+
+	if (chip->ahb_window_sz < offs + len) {
+		dev_info(dev, "write range exceeds flash remapping size\n");
+		return 0;
+	}
+
+	if (len < 1)
+		return 0;
+
+	if (len > ASPEED_SPI_OP_BUF_LEN) {
+		dev_info(dev,
+			 "written length exceeds expected value (0x%zx)\n",
+			 len);
+		return 0;
+	}
+
+	dev_dbg(dev, "write op:0x%x, addr:0x%08llx, len:0x%08zx\n",
+		op_tmpl.cmd.opcode, offs, len);
+
+	reg_val = readl(aspi->regs + CS_MODE_CTRL_REG);
+	reg_val |= (SPI_CS_TO_DIS);
+	writel(reg_val, aspi->regs + CS_MODE_CTRL_REG);
+
+	writel(chip->ctl_val[ASPEED_SPI_WRITE], chip->ctl);
+
+	/*
+	 * - Don't use dma_map_single here, since we cannot make sure the buf's
+	 *   start address is 4-byte-aligned.
+	 * - Only support from SPI flash to DRAM.
+	 */
+	flash_addr = (chip->ahb_base_phy + offs) & 0x7fffffff;
+	memcpy_toio(aspi->op_buf, buf, len);
+	writel(DMA_DRAM_HI_ADDR, aspi->regs + DMA_HI_ADDR_REG);
+	writel(0x0, aspi->regs + DMA_CTRL_REG);
+	writel((u32)aspi->dma_addr_phy, aspi->regs + DMA_RAM_ADDR_REG);
+	writel(flash_addr, aspi->regs + DMA_FLASH_ADDR_REG);
+	writel(len - 1, aspi->regs + DMA_LEN_REG);
+
+	/* enable DMA irq */
+	reg_val = readl(aspi->regs + INTR_CTRL_STATUS_REG);
+	reg_val |= SPI_DMA_IRQ_EN;
+	writel(reg_val, aspi->regs + INTR_CTRL_STATUS_REG);
+
+	reinit_completion(&aspi->dma_done);
+
+	/* enable write DMA */
+	writel(0x3, aspi->regs + DMA_CTRL_REG);
+	timeout = wait_for_completion_timeout(&aspi->dma_done, msecs_to_jiffies(2000));
+
+	if (timeout == 0) {
+		writel(0x0, aspi->regs + DMA_CTRL_REG);
+		dev_err(dev, "write data timeout %d\n", ret);
+		ret = -1;
+	}
+
+	writel(chip->ctl_val[ASPEED_SPI_WRITE] | CTRL_CE_STOP_ACTIVE,
+	       chip->ctl);
+
+	writel(chip->ctl_val[ASPEED_SPI_READ], chip->ctl);
+	writel(0x0, aspi->regs + CS_MODE_CTRL_REG);
+
+	return ret ? 0 : len;
+}
+
+static irqreturn_t aspeed_2600_spi_dma_isr(int irq, void *dev_id)
 {
 	struct aspeed_spi *aspi = (struct aspeed_spi *)dev_id;
 	u32 reg_val;
@@ -702,6 +888,31 @@ static irqreturn_t aspeed_spi_dma_isr(int irq, void *dev_id)
 
 	writel(0x0, aspi->regs + DMA_CTRL_REG);
 	writel(DMA_DISCARD_REQ_MAGIC, aspi->regs + DMA_CTRL_REG);
+
+	complete(&aspi->dma_done);
+
+	return IRQ_HANDLED;
+}
+
+static irqreturn_t aspeed_2700_spi_dma_isr(int irq, void *dev_id)
+{
+	struct aspeed_spi *aspi = (struct aspeed_spi *)dev_id;
+	u32 reg_val;
+
+	if (!(readl(aspi->regs + INTR_CTRL_STATUS_REG) & SPI_DMA_STATUS) ||
+	    !(readl(aspi->regs + INTR_CTRL_STATUS_REG) & SPI_DMA_IRQ_STS)) {
+		return IRQ_NONE;
+	}
+
+	reg_val = readl(aspi->regs + INTR_CTRL_STATUS_REG);
+	reg_val &= ~SPI_DMA_IRQ_EN;
+	writel(reg_val, aspi->regs + INTR_CTRL_STATUS_REG);
+
+	reg_val = readl(aspi->regs + INTR_CTRL_STATUS_REG);
+	reg_val |= SPI_DMA_IRQ_STS;
+	writel(reg_val, aspi->regs + INTR_CTRL_STATUS_REG);
+
+	writel(0x0, aspi->regs + DMA_CTRL_REG);
 
 	complete(&aspi->dma_done);
 
@@ -1206,16 +1417,25 @@ static const struct spi_controller_mem_ops aspeed_spi_ops_normal_read_dma_write 
 	.supports_op = aspeed_spi_supports_op,
 	.dirmap_create = aspeed_spi_dirmap_create,
 	.dirmap_read = aspeed_spi_dirmap_read,
-	.dirmap_write = aspeed_spi_dirmap_dma_write,
+	.dirmap_write = aspeed_2600_spi_dirmap_dma_write,
 };
 
-static const struct spi_controller_mem_ops aspeed_spi_ops_dma_mode = {
+static const struct spi_controller_mem_ops aspeed_2600_spi_ops_dma_mode = {
 	.get_name = aspeed_spi_get_name,
 	.exec_op = aspeed_spi_exec_op,
 	.supports_op = aspeed_spi_supports_op,
 	.dirmap_create = aspeed_spi_dirmap_create,
-	.dirmap_read = aspeed_spi_dirmap_dma_read,
-	.dirmap_write = aspeed_spi_dirmap_dma_write,
+	.dirmap_read = aspeed_2600_spi_dirmap_dma_read,
+	.dirmap_write = aspeed_2600_spi_dirmap_dma_write,
+};
+
+static const struct spi_controller_mem_ops aspeed_2700_spi_ops_dma_mode = {
+	.get_name = aspeed_spi_get_name,
+	.exec_op = aspeed_spi_exec_op,
+	.supports_op = aspeed_spi_supports_op,
+	.dirmap_create = aspeed_spi_dirmap_create,
+	.dirmap_read = aspeed_2700_spi_dirmap_dma_read,
+	.dirmap_write = aspeed_2700_spi_dirmap_dma_write,
 };
 
 static void aspeed_spi_chip_set_type(struct aspeed_spi *aspi, unsigned int cs, int type)
@@ -1368,11 +1588,20 @@ static int aspeed_spi_probe(struct platform_device *pdev)
 	if ((aspi->flag & ASPEED_SPI_NORMAL_MODE) != 0 ||
 	    (aspi->flag & ASPEED_SPI_DMA_WRITE_MODE) != 0 ||
 	    (aspi->flag & ASPEED_SPI_DMA_MODE) != 0) {
+		if (data->ver == 2700) {
+			ret = dma_set_mask_and_coherent(dev, DMA_BIT_MASK(64));
+			if (ret) {
+				dev_err(dev, "cannot set 64-bits DMA mask\n");
+				return ret;
+			}
+		}
+
 		aspi->op_buf = dma_alloc_coherent(dev,
 						  ASPEED_SPI_OP_BUF_LEN,
 						  &aspi->dma_addr_phy,
 						  GFP_DMA | GFP_KERNEL);
 		if (!aspi->op_buf) {
+			dev_err(dev, "fail to alloc dma buffer\n");
 			ret = -ENOMEM;
 			goto end;
 		}
@@ -1386,8 +1615,17 @@ static int aspeed_spi_probe(struct platform_device *pdev)
 			return aspi->irq;
 		}
 
-		ret = devm_request_irq(dev, aspi->irq, aspeed_spi_dma_isr,
-				       IRQF_SHARED, dev_name(dev), aspi);
+		if (data->ver == 2600) {
+			ret = devm_request_irq(dev, aspi->irq,
+					       aspeed_2600_spi_dma_isr,
+					       IRQF_SHARED, dev_name(dev),
+					       aspi);
+		} else if (data->ver == 2700) {
+			ret = devm_request_irq(dev, aspi->irq,
+					       aspeed_2700_spi_dma_isr,
+					       IRQF_SHARED, dev_name(dev),
+					       aspi);
+		}
 
 		if (ret < 0) {
 			dev_err(dev, "fail to request irq (%d)\n", ret);
@@ -1397,7 +1635,7 @@ static int aspeed_spi_probe(struct platform_device *pdev)
 		init_completion(&aspi->dma_done);
 	}
 
-	if ((aspi->flag & ASPEED_SPI_DMA_MODE) != 0 &&
+	if ((aspi->flag & ASPEED_SPI_DMA_MODE) != 0 ||
 	    (aspi->flag & ASPEED_SPI_PURE_USER_MODE) != 0)
 		aspi->flag |= ASPEED_SPI_MIN_WINDOW;
 
@@ -1418,7 +1656,10 @@ static int aspeed_spi_probe(struct platform_device *pdev)
 		ctlr->mem_ops = &aspeed_spi_ops_normal_read_dma_write;
 	} else if ((aspi->flag & ASPEED_SPI_DMA_MODE) != 0) {
 		dev_info(&pdev->dev, "dma mode is used\n");
-		ctlr->mem_ops = &aspeed_spi_ops_dma_mode;
+		if (data->ver == 2600)
+			ctlr->mem_ops = &aspeed_2600_spi_ops_dma_mode;
+		else if (data->ver == 2700)
+			ctlr->mem_ops = &aspeed_2700_spi_ops_dma_mode;
 	} else if ((aspi->flag & ASPEED_SPI_PURE_USER_MODE) != 0) {
 		dev_info(&pdev->dev, "user mode is used\n");
 		ctlr->mem_ops = &aspeed_spi_mem_ops_pure_user;
@@ -2020,6 +2261,7 @@ void aspeed_spi_ast2600_fill_safs_cmd(struct aspeed_spi *aspi,
  * Platform definitions
  */
 static const struct aspeed_spi_data ast2400_fmc_data = {
+	.ver           = 2400,
 	.max_cs	       = 5,
 	.hastype       = true,
 	.we0	       = 16,
@@ -2037,6 +2279,7 @@ static const struct aspeed_spi_data ast2400_fmc_data = {
 };
 
 static const struct aspeed_spi_data ast2400_spi_data = {
+	.ver	       = 2400,
 	.max_cs	       = 1,
 	.hastype       = false,
 	.we0	       = 0,
@@ -2050,6 +2293,7 @@ static const struct aspeed_spi_data ast2400_spi_data = {
 };
 
 static const struct aspeed_spi_data ast2500_fmc_data = {
+	.ver	       = 2500,
 	.max_cs	       = 3,
 	.hastype       = true,
 	.we0	       = 16,
@@ -2067,6 +2311,7 @@ static const struct aspeed_spi_data ast2500_fmc_data = {
 };
 
 static const struct aspeed_spi_data ast2500_spi_data = {
+	.ver	       = 2500,
 	.max_cs	       = 2,
 	.hastype       = false,
 	.we0	       = 16,
@@ -2084,6 +2329,7 @@ static const struct aspeed_spi_data ast2500_spi_data = {
 };
 
 static const struct aspeed_spi_data ast2600_fmc_data = {
+	.ver	       = 2600,
 	.max_cs	       = 3,
 	.hastype       = false,
 	.mode_bits     = SPI_RX_QUAD | SPI_TX_QUAD,
@@ -2102,6 +2348,7 @@ static const struct aspeed_spi_data ast2600_fmc_data = {
 };
 
 static const struct aspeed_spi_data ast2600_spi_data = {
+	.ver	       = 2600,
 	.max_cs	       = 2,
 	.hastype       = false,
 	.mode_bits     = SPI_RX_QUAD | SPI_TX_QUAD,
@@ -2121,6 +2368,7 @@ static const struct aspeed_spi_data ast2600_spi_data = {
 };
 
 static const struct aspeed_spi_data ast2700_fmc_data = {
+	.ver	       = 2700,
 	.max_cs	       = 3,
 	.hastype       = false,
 	.mode_bits     = SPI_RX_QUAD | SPI_TX_QUAD,
@@ -2138,6 +2386,7 @@ static const struct aspeed_spi_data ast2700_fmc_data = {
 };
 
 static const struct aspeed_spi_data ast2700_spi_data = {
+	.ver	       = 2700,
 	.max_cs	       = 2,
 	.hastype       = false,
 	.mode_bits     = SPI_RX_QUAD | SPI_TX_QUAD,

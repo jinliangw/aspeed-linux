@@ -978,6 +978,7 @@
 			compatible = "aspeed,ast2700-fmc";
 			status = "disabled";
 			clocks = <&syscon1 AST2700_SOC1_CLK_AHB>;
+			interrupts-extended = <&soc0_intc3 25>;
 			num-cs = <3>;
 
 			flash@0 {
@@ -1011,6 +1012,7 @@
 			#size-cells = <0>;
 			compatible = "aspeed,ast2700-spi";
 			clocks = <&syscon1 AST2700_SOC1_CLK_AHB>;
+			interrupts-extended = <&soc0_intc3 26>;
 			status = "disabled";
 			num-cs = <2>;
 
@@ -1037,6 +1039,7 @@
 			#size-cells = <0>;
 			compatible = "aspeed,ast2700-spi";
 			clocks = <&syscon1 AST2700_SOC1_CLK_AHB>;
+			interrupts-extended = <&soc0_intc3 27>;
 			status = "disabled";
 			num-cs = <2>;
 
@@ -1063,6 +1066,7 @@
 			#size-cells = <0>;
 			clocks = <&syscon1 AST2700_SOC1_CLK_AHB>;
 			resets = <&syscon1 ASPEED_RESET_SPI2>;
+			interrupts-extended = <&soc0_intc3 28>;
 			num-cs = <2>;
 			status = "disabled";
 		};
