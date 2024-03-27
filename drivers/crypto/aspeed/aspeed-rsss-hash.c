@@ -198,6 +198,8 @@ static int aspeed_sha3_transfer(struct aspeed_rsss_dev *rsss_dev)
 
 	rctx = ahash_request_ctx(req);
 
+	/* add usleep for DMA done */
+	udelay(100);
 	memcpy(req->result, sha3_engine->digest_addr, rctx->digsize);
 
 	return aspeed_sha3_complete(rsss_dev);
