@@ -116,6 +116,12 @@
 	};
 };
 
+&pwm_tach {
+	status = "okay";
+	pinctrl-names = "default";
+	pinctrl-0 = <&pinctrl_pwm9_default>;
+};
+
 &adc0 {
 	aspeed,int-vref-microvolt = <2500000>;
 	status = "okay";
