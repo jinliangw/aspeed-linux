@@ -390,7 +390,7 @@ void aspeed_mctp_packet_free(void *packet)
 }
 EXPORT_SYMBOL_GPL(aspeed_mctp_packet_free);
 
-static u16 _get_bdf(struct aspeed_mctp *priv)
+static int _get_bdf(struct aspeed_mctp *priv)
 {
 	u32 reg;
 	u16 bdf, devfn;
@@ -398,13 +398,13 @@ static u16 _get_bdf(struct aspeed_mctp *priv)
 	if (priv->match_data->dma_need_64bits_width) {
 		regmap_read(priv->pcie.map, ASPEED_G7_PCIE_LINK, &reg);
 		if (!(reg & PCIE_G7_LINK_STS))
-			return 0;
+			return -ENETDOWN;
 		regmap_read(priv->map, ASPEED_G7_MCTP_PCIE_BDF, &reg);
 		bdf = PCI_DEVID(PCI_BUS_NUM(reg), reg & 0xff);
 	} else {
 		regmap_read(priv->pcie.map, ASPEED_PCIE_LINK, &reg);
 		if (!(reg & PCIE_LINK_STS))
-			return 0;
+			return -ENETDOWN;
 		regmap_read(priv->pcie.map, ASPEED_PCIE_MISC_STS_1, &reg);
 
 		reg = reg & (PCI_BUS_NUM_MASK | PCI_DEV_NUM_MASK);
@@ -1177,9 +1177,10 @@ int aspeed_mctp_send_packet(struct mctp_client *client,
 	int ret;
 	u16 bdf;
 
-	bdf = _get_bdf(priv);
-	if (bdf == 0)
-		return -EIO;
+	ret = _get_bdf(priv);
+	if (ret < 0)
+		return ret;
+	bdf = ret;
 
 	/*
 	 * If the data size is different from contents of PCIe VDM header,
@@ -1216,11 +1217,11 @@ struct mctp_pcie_packet *aspeed_mctp_receive_packet(struct mctp_client *client,
 						    unsigned long timeout)
 {
 	struct aspeed_mctp *priv = client->priv;
-	u16 bdf = _get_bdf(priv);
 	int ret;
 
-	if (bdf == 0)
-		return ERR_PTR(-EIO);
+	ret = _get_bdf(priv);
+	if (ret < 0)
+		return ERR_PTR(ret);
 
 	ret = wait_event_interruptible_timeout(client->wait_queue,
 					       __ptr_ring_peek(&client->rx_queue),
@@ -1900,19 +1901,19 @@ static void aspeed_mctp_send_pcie_uevent(struct kobject *kobj, bool ready)
 			   ready ? pcie_ready_event : pcie_not_ready_event);
 }
 
-static u16 aspeed_mctp_pcie_setup(struct aspeed_mctp *priv)
+static int aspeed_mctp_pcie_setup(struct aspeed_mctp *priv)
 {
-	u16 bdf;
+	int ret;
 
-	bdf = _get_bdf(priv);
-	if (bdf != 0) {
+	ret = _get_bdf(priv);
+
+	if (ret >= 0) {
 		cancel_delayed_work(&priv->pcie.rst_dwork);
 	} else {
 		schedule_delayed_work(&priv->pcie.rst_dwork,
 				      msecs_to_jiffies(1000));
-		bdf = 0;
 	}
-	return bdf;
+	return ret;
 }
 
 static void aspeed_mctp_irq_enable(struct aspeed_mctp *priv)
@@ -1933,7 +1934,7 @@ static void aspeed_mctp_reset_work(struct work_struct *work)
 	struct aspeed_mctp *priv = container_of(work, typeof(*priv),
 						pcie.rst_dwork.work);
 	struct kobject *kobj = &priv->mctp_miscdev.this_device->kobj;
-	u16 bdf;
+	int ret;
 	u8 tx_max_payload_size;
 
 	if (priv->pcie.need_uevent) {
@@ -1941,8 +1942,8 @@ static void aspeed_mctp_reset_work(struct work_struct *work)
 		priv->pcie.need_uevent = false;
 	}
 
-	bdf = aspeed_mctp_pcie_setup(priv);
-	if (bdf) {
+	ret = aspeed_mctp_pcie_setup(priv);
+	if (ret >= 0) {
 		if (priv->match_data->need_address_mapping)
 			regmap_update_bits(priv->map, ASPEED_MCTP_EID,
 					   MEMORY_SPACE_MAPPING, BIT(31));
@@ -2271,7 +2272,6 @@ static int aspeed_mctp_probe(struct platform_device *pdev)
 	struct aspeed_mctp *priv;
 	int ret, id;
 	const char *name;
-	u16 bdf;
 
 	priv = devm_kzalloc(&pdev->dev, sizeof(*priv), GFP_KERNEL);
 	if (!priv) {
@@ -2345,8 +2345,8 @@ static int aspeed_mctp_probe(struct platform_device *pdev)
 		dev_err(priv->dev, "Failed to init IRQ!\n");
 		goto out_dma;
 	}
-	bdf = aspeed_mctp_pcie_setup(priv);
-	if (bdf != 0) {
+	ret = aspeed_mctp_pcie_setup(priv);
+	if (ret >= 0) {
 		if (priv->match_data->need_address_mapping)
 			regmap_update_bits(priv->map, ASPEED_MCTP_EID,
 					   MEMORY_SPACE_MAPPING, BIT(31));
