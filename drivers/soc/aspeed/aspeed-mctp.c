@@ -2108,6 +2108,11 @@ static int aspeed_mctp_resources_init(struct aspeed_mctp *priv)
 	return 0;
 }
 
+static void aspeed_release_rmem(void *d)
+{
+	of_reserved_mem_device_release(d);
+}
+
 static int aspeed_mctp_dma_init(struct aspeed_mctp *priv)
 {
 	struct mctp_channel *tx = &priv->tx;
@@ -2124,6 +2129,11 @@ static int aspeed_mctp_dma_init(struct aspeed_mctp *priv)
 			ret);
 		return ret;
 	}
+
+	ret = devm_add_action_or_reset(priv->dev, aspeed_release_rmem,
+				       priv->dev);
+	if (ret)
+		return ret;
 
 	ret = dma_set_mask_and_coherent(priv->dev, DMA_BIT_MASK(64));
 	if (ret) {
