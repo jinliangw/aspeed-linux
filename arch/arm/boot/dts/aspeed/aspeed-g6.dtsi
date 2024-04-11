@@ -1597,7 +1597,12 @@
 		pinctrl-0 = <&pinctrl_i3c1_default>;
 
 		i2c-scl-hz = <1000000>;
-		i3c-scl-hz = <12500000>;
+		i3c-scl-hz = <2000000>;
+		i3c-od-scl-hi-period-ns = <380>;
+		i3c-od-scl-lo-period-ns = <620>;
+		i3c-pp-scl-hi-period-ns = <250>;
+		i3c-pp-scl-lo-period-ns = <250>;
+		sda-tx-hold-ns = <70>;
 		aspeed,global-regs = <&i3c_global 0>;
 		sda-pullup-ohms = <2000>;
 
@@ -1618,7 +1623,12 @@
 		pinctrl-0 = <&pinctrl_i3c2_default>;
 
 		i2c-scl-hz = <1000000>;
-		i3c-scl-hz = <12500000>;
+		i3c-scl-hz = <2000000>;
+		i3c-od-scl-hi-period-ns = <380>;
+		i3c-od-scl-lo-period-ns = <620>;
+		i3c-pp-scl-hi-period-ns = <250>;
+		i3c-pp-scl-lo-period-ns = <250>;
+		sda-tx-hold-ns = <70>;
 		aspeed,global-regs = <&i3c_global 1>;
 		sda-pullup-ohms = <2000>;
 
@@ -1637,7 +1647,12 @@
 		interrupts = <GIC_SPI 104 IRQ_TYPE_LEVEL_HIGH>;
 
 		i2c-scl-hz = <1000000>;
-		i3c-scl-hz = <12500000>;
+		i3c-scl-hz = <2000000>;
+		i3c-od-scl-hi-period-ns = <380>;
+		i3c-od-scl-lo-period-ns = <620>;
+		i3c-pp-scl-hi-period-ns = <250>;
+		i3c-pp-scl-lo-period-ns = <250>;
+		sda-tx-hold-ns = <70>;
 		aspeed,global-regs = <&i3c_global 2>;
 		sda-pullup-ohms = <2000>;
 
@@ -1656,7 +1671,12 @@
 		interrupts = <GIC_SPI 105 IRQ_TYPE_LEVEL_HIGH>;
 
 		i2c-scl-hz = <1000000>;
-		i3c-scl-hz = <12500000>;
+		i3c-scl-hz = <2000000>;
+		i3c-od-scl-hi-period-ns = <380>;
+		i3c-od-scl-lo-period-ns = <620>;
+		i3c-pp-scl-hi-period-ns = <250>;
+		i3c-pp-scl-lo-period-ns = <250>;
+		sda-tx-hold-ns = <70>;
 		aspeed,global-regs = <&i3c_global 3>;
 		sda-pullup-ohms = <2000>;
 
@@ -1677,7 +1697,12 @@
 		pinctrl-0 = <&pinctrl_i3c5_default>;
 
 		i2c-scl-hz = <1000000>;
-		i3c-scl-hz = <12500000>;
+		i3c-scl-hz = <2000000>;
+		i3c-od-scl-hi-period-ns = <380>;
+		i3c-od-scl-lo-period-ns = <620>;
+		i3c-pp-scl-hi-period-ns = <250>;
+		i3c-pp-scl-lo-period-ns = <250>;
+		sda-tx-hold-ns = <70>;
 		aspeed,global-regs = <&i3c_global 4>;
 		sda-pullup-ohms = <2000>;
 
@@ -1698,7 +1723,12 @@
 		pinctrl-0 = <&pinctrl_i3c6_default>;
 
 		i2c-scl-hz = <1000000>;
-		i3c-scl-hz = <12500000>;
+		i3c-scl-hz = <2000000>;
+		i3c-od-scl-hi-period-ns = <380>;
+		i3c-od-scl-lo-period-ns = <620>;
+		i3c-pp-scl-hi-period-ns = <250>;
+		i3c-pp-scl-lo-period-ns = <250>;
+		sda-tx-hold-ns = <70>;
 		aspeed,global-regs = <&i3c_global 5>;
 		sda-pullup-ohms = <2000>;
 
