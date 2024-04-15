@@ -153,6 +153,8 @@
 #define AST2400_VE_COMP_SIZE_READ_BACK	0x078
 #define AST2600_VE_COMP_SIZE_READ_BACK	0x084
 
+#define VE_COMP_FRAME_COUNT_READ_BACK	0x07C
+
 #define VE_SRC_LR_EDGE_DET		0x090
 #define  VE_SRC_LR_EDGE_DET_LEFT	GENMASK(11, 0)
 #define  VE_SRC_LR_EDGE_DET_NO_V	BIT(12)
@@ -680,8 +682,19 @@ static void aspeed_video_partial_jpeg_update_regs(struct aspeed_video *v)
 			 "%s: BCD enabled\n", __func__);
 	} else {
 		u32 scan_lines = aspeed_video_read(v, VE_SRC_SCANLINE_OFFSET);
-		dma_addr_t addr = aspeed_video_read(v, VE_SRC0_ADDR);
+		u32 frame_count = aspeed_video_read(v, VE_COMP_FRAME_COUNT_READ_BACK);
+		u32 old_src_addr, new_src_addr;
+		dma_addr_t addr;
 		u32 offset;
+
+		if (v->version >= 7) {
+			old_src_addr = (frame_count & 0x01) ? VE_SRC0_ADDR : VE_SRC1_ADDR;
+			new_src_addr = (frame_count & 0x01) ? VE_SRC1_ADDR : VE_SRC0_ADDR;
+		} else {
+			old_src_addr = VE_SRC0_ADDR;
+			new_src_addr = VE_SRC0_ADDR;
+		}
+		addr = aspeed_video_read(v, old_src_addr);
 
 		aspeed_video_update(v, VE_SEQ_CTRL,
 				    VE_SEQ_CTRL_AUTO_COMP,
@@ -694,9 +707,9 @@ static void aspeed_video_partial_jpeg_update_regs(struct aspeed_video *v)
 
 		offset = (scan_lines * v->bounding_box.top) +
 			 ((256 * v->bounding_box.left) >> (v->yuv420 ? 4:3));
-		aspeed_video_write(v, VE_SRC0_ADDR, addr + offset);
+		aspeed_video_write(v, new_src_addr, addr + offset);
 		v4l2_dbg(1, debug, &v->v4l2_dev,
-			 "%s: BCD disabled\n", __func__);
+			 "%s: BCD disabled, frame#(%d) offset(0x%x)\n", __func__, frame_count, offset);
 	}
 }
 
@@ -945,10 +958,7 @@ static void aspeed_video_irq_res_change(struct aspeed_video *video, ulong delay)
 
 static inline bool _box_data_changed(struct aspeed_video *v, u8 data)
 {
-	if (v->version > 6)
-		return (data == 0xf);
-
-	if (v->version == 6)
+	if (v->version >= 6)
 		return ((data & 0xf) != 0xf);
 
 	return ((data & 0xf) == 0xf);
