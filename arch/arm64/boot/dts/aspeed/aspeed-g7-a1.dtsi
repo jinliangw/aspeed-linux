@@ -513,17 +513,37 @@
 				interrupts = <GIC_SPI 136 IRQ_TYPE_LEVEL_HIGH>;
 			};
 
-			soc0_intc_global: interrupt-controller@1900 {
+			soc0_intc9: interrupt-controller@1900 {
+				#interrupt-cells = <1>;
+				interrupt-controller;
+				compatible = "aspeed,ast2700-intc-ic";
+				reg = <0x0 0x1900 0x0 0x10>;
+				interrupts = <GIC_SPI 137 IRQ_TYPE_LEVEL_HIGH>;
+			};
+
+			soc0_intc10: interrupt-controller@1a00 {
+				#interrupt-cells = <1>;
+				interrupt-controller;
+				compatible = "aspeed,ast2700-intc-ic";
+				reg = <0x0 0x1a00 0x0 0x10>;
+				interrupts = <GIC_SPI 138 IRQ_TYPE_LEVEL_HIGH>;
+			};
+
+			soc0_intc_global: interrupt-controller@1b00 {
 				#interrupt-cells = <1>;
 				interrupt-controller;
 				compatible = "aspeed,ast2700-intc-icv2";
-				reg = <0x0 0x1900 0x0 0x10>;
+				reg = <0x0 0x1b00 0x0 0x10>;
 				interrupts = <GIC_SPI 192 IRQ_TYPE_LEVEL_HIGH>,
 						<GIC_SPI 193 IRQ_TYPE_LEVEL_HIGH>,
 						<GIC_SPI 194 IRQ_TYPE_LEVEL_HIGH>,
 						<GIC_SPI 195 IRQ_TYPE_LEVEL_HIGH>,
 						<GIC_SPI 196 IRQ_TYPE_LEVEL_HIGH>,
-						<GIC_SPI 197 IRQ_TYPE_LEVEL_HIGH>;
+						<GIC_SPI 197 IRQ_TYPE_LEVEL_HIGH>,
+						<GIC_SPI 198 IRQ_TYPE_LEVEL_HIGH>,
+						<GIC_SPI 199 IRQ_TYPE_LEVEL_HIGH>,
+						<GIC_SPI 200 IRQ_TYPE_LEVEL_HIGH>,
+						<GIC_SPI 201 IRQ_TYPE_LEVEL_HIGH>;
 			};
 		};
 
