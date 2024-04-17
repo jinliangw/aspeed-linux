@@ -15,6 +15,7 @@
 #define DEVICE_NAME	"aspeed-disp-intf"
 
 #define AST2700_SCU_PIN_SEL		0x414
+#define  AST2700_SCU_D1PLL_SEL		GENMASK(13, 12)
 #define  AST2700_SCU_DAC_SRC_SEL	GENMASK(11, 10)
 #define  AST2700_SCU_DP_SRC_SEL		GENMASK(9, 8)
 
@@ -147,6 +148,10 @@ static ssize_t dp_src_store(struct device *dev, struct device_attribute *attr,
 	dp_src = src;
 	regmap_update_bits(intf->scu, config->dp_src_sel, SCU_DP_SRC_SEL,
 			   FIELD_PREP(SCU_DP_SRC_SEL, src));
+#ifdef CONFIG_MACH_ASPEED_G7
+	regmap_update_bits(intf->scu, config->dp_src_sel, AST2700_SCU_D1PLL_SEL,
+			   FIELD_PREP(AST2700_SCU_D1PLL_SEL, src));
+#endif
 
 	return count;
 }
