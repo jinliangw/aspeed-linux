@@ -194,7 +194,7 @@
 #define  XDMA_AST2700_CTRL_DS_COMP		 BIT(17)
 #define  XDMA_AST2700_CTRL_DS_DIRTY		 BIT(18)
 #define  XDMA_AST2700_CTRL_IDLE			 BIT(19)
-#define  XDMA_AST2700_CTRL_DS_SIZE		 GENMASK_ULL(22, 20)
+#define  XDMA_AST2700_CTRL_DS_SIZE_256		 BIT(20)
 #define XDMA_AST2700_STATUS			0x3c
 #define  XDMA_AST2700_STATUS_US_COMP 		 BIT(16)
 #define  XDMA_AST2700_STATUS_DS_COMP 		 BIT(17)
@@ -1343,7 +1343,7 @@ static const struct aspeed_xdma_chip aspeed_ast2600_xdma_chip = {
 
 static const struct aspeed_xdma_chip aspeed_ast2700_xdma0_chip = {
 	.control = XDMA_AST2700_CTRL_US_COMP | XDMA_AST2700_CTRL_DS_COMP |
-		XDMA_AST2700_CTRL_DS_DIRTY,
+		XDMA_AST2700_CTRL_DS_DIRTY | XDMA_AST2700_CTRL_DS_SIZE_256,
 	.scu_bmc_class = SCU_AST2700_PCIE0_BMC_CLASS_REV,
 	.scu_misc_ctrl = SCU_AST2600_MISC_CTRL,
 	.scu_pcie_conf = SCU_AST2700_PCIE0_CONF,
