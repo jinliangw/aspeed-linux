@@ -529,7 +529,7 @@
 				interrupts = <GIC_SPI 138 IRQ_TYPE_LEVEL_HIGH>;
 			};
 
-			soc0_intc_global: interrupt-controller@1b00 {
+			soc0_intc11: interrupt-controller@1b00 {
 				#interrupt-cells = <1>;
 				interrupt-controller;
 				compatible = "aspeed,ast2700-intc-icv2";
@@ -1430,7 +1430,7 @@
 				interrupt-controller;
 				compatible = "aspeed,ast2700-intc-ic";
 				reg = <0x0 0x100 0x0 0x10>;
-				interrupts-extended = <&soc0_intc_global 0>;
+				interrupts-extended = <&soc0_intc11 0>;
 			};
 
 			soc1_intc1: interrupt-controller@110 {
@@ -1438,7 +1438,7 @@
 				interrupt-controller;
 				compatible = "aspeed,ast2700-intc-ic";
 				reg = <0x0 0x110 0x0 0x10>;
-				interrupts-extended = <&soc0_intc_global 1>;
+				interrupts-extended = <&soc0_intc11 1>;
 			};
 
 			soc1_intc2: interrupt-controller@120 {
@@ -1446,7 +1446,7 @@
 				interrupt-controller;
 				compatible = "aspeed,ast2700-intc-ic";
 				reg = <0x0 0x120 0x0 0x10>;
-				interrupts-extended = <&soc0_intc_global 2>;
+				interrupts-extended = <&soc0_intc11 2>;
 			};
 
 			soc1_intc3: interrupt-controller@130 {
@@ -1454,7 +1454,7 @@
 				interrupt-controller;
 				compatible = "aspeed,ast2700-intc-ic";
 				reg = <0x0 0x130 0x0 0x10>;
-				interrupts-extended = <&soc0_intc_global 3>;
+				interrupts-extended = <&soc0_intc11 3>;
 			};
 
 			soc1_intc4: interrupt-controller@140 {
@@ -1462,7 +1462,7 @@
 				interrupt-controller;
 				compatible = "aspeed,ast2700-intc-ic";
 				reg = <0x0 0x140 0x0 0x10>;
-				interrupts-extended = <&soc0_intc_global 4>;
+				interrupts-extended = <&soc0_intc11 4>;
 			};
 
 			soc1_intc5: interrupt-controller@150 {
@@ -1470,7 +1470,7 @@
 				interrupt-controller;
 				compatible = "aspeed,ast2700-intc-ic";
 				reg = <0x0 0x150 0x0 0x10>;
-				interrupts-extended = <&soc0_intc_global 5>;
+				interrupts-extended = <&soc0_intc11 5>;
 			};
 		};
 
