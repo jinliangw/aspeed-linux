@@ -201,6 +201,51 @@
 		groups = "USB2BHP";
 	};
 
+	pinctrl_jtagm0_default: jtagm0_default {
+		function = "JTAG0";
+		groups = "JTAGM0";
+	};
+
+	pinctrl_jtag_psp_default: jtag_psp_default {
+		function = "JTAG0";
+		groups = "PSP";
+	};
+
+	pinctrl_jtag_ssp_default: jtag_ssp_default {
+		function = "JTAG0";
+		groups = "SSP";
+	};
+
+	pinctrl_jtag_tsp_default: jtag_tsp_default {
+		function = "JTAG0";
+		groups = "TSP";
+	};
+
+	pinctrl_jtag_ddr_default: jtag_ddr_default {
+		function = "JTAG0";
+		groups = "DDR";
+	};
+
+	pinctrl_jtag_usb3a_default: jtag_usb3a_default {
+		function = "JTAG0";
+		groups = "USB3A";
+	};
+
+	pinctrl_jtag_usb3b_default: jtag_usb3b_default {
+		function = "JTAG0";
+		groups = "USB3B";
+	};
+
+	pinctrl_jtag_pciea_default: jtag_pciea_default {
+		function = "JTAG0";
+		groups = "PCIEA";
+	};
+
+	pinctrl_jtag_pcieb_default: jtag_pcieb_default {
+		function = "JTAG0";
+		groups = "PCIEB";
+	};
+
 };
 
 &pinctrl1 {

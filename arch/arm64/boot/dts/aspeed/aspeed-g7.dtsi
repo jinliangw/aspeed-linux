@@ -849,6 +849,8 @@
 			interrupts = <GIC_SPI 27 IRQ_TYPE_LEVEL_HIGH>;
 			clocks = <&syscon0 AST2700_SOC0_CLK_APB>;
 			resets = <&syscon0 ASPEED_RESET_JTAG0>;
+			pinctrl-0 = <&pinctrl_jtagm0_default>;
+			pinctrl-names = "default";
 			status = "disabled";
 		};
 
