@@ -400,7 +400,7 @@
 			ranges = <0 0 0 0x12090000 0 0x10000>;
 			clocks = <&syscon0 AST2700_SOC0_CLK_GATE_EMMCCLK>;
 			resets = <&syscon0 ASPEED_RESET_EMMC>;
-			status = "disable";
+			status = "disabled";
 
 			emmc: sdhci@12090100 {
 				compatible = "aspeed,ast2600-emmc";
@@ -409,7 +409,7 @@
 				interrupts = <GIC_SPI 15 IRQ_TYPE_LEVEL_HIGH>;
 				clocks = <&syscon0 AST2700_SOC0_CLK_GATE_EMMCCLK>;
 				pinctrl-names = "default";
-				status = "disable";
+				status = "disabled";
 			};
 		};
 
@@ -421,7 +421,7 @@
 			ranges = <0 0 0 0x12c08000 0 0x300>;
 			clocks = <&syscon0 AST2700_SOC0_CLK_GATE_UFSCLK>;
 			resets = <&syscon0 ASPEED_RESET_UFS>;
-			status = "disable";
+			status = "disabled";
 
 			ufs: ufshc@12c08200 {
 				compatible = "aspeed,ast2700-ufshc";
@@ -430,7 +430,7 @@
 				clocks = <&syscon0 AST2700_SOC0_CLK_AXI1>;
 				clock-names = "core_clk";
 				freq-table-hz = <0 0>;
-				status = "disable";
+				status = "disabled";
 			};
 		};
 
@@ -1161,7 +1161,7 @@
 			ranges = <0 0 0 0x14080000 0 0x10000>;
 			clocks = <&syscon1 AST2700_SOC1_CLK_GATE_SDCLK>;
 			resets = <&syscon1 ASPEED_RESET_SD>;
-			status = "disable";
+			status = "disabled";
 
 			sdhci: sdhci@14080100 {
 				compatible = "aspeed,ast2600-sdhci", "sdhci";
@@ -1171,7 +1171,7 @@
 				clocks = <&syscon1 AST2700_SOC1_CLK_GATE_SDCLK>;
 				pinctrl-names = "default";
 				pinctrl-0 = <&pinctrl_sd_default>;
-				status = "disable";
+				status = "disabled";
 			};
 		};
 
