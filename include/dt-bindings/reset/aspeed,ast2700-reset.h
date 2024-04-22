@@ -23,7 +23,7 @@
 #define ASPEED_RESET_SM3		(11)
 #define ASPEED_RESET_SM4		(12)
 #define ASPEED_RESET_CRT0		(13)
-#define ASPEED_RESET_CRT1		(14)
+#define ASPEED_RESET_ECC		(14)
 #define ASPEED_RESET_DP_PCI		(15)
 #define ASPEED_RESET_UFS		(16)
 #define ASPEED_RESET_EMMC		(17)
