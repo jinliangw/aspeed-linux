@@ -433,7 +433,7 @@ static unsigned int aspeed_xdma_ast2600_set_cmd(struct aspeed_xdma *ctx,
 		"host[%016llx]\n", op->direction ? "upstream" : "downstream",
 		bmc_addr, op->len, op->host_addr);
 
-	if (op->len > XDMA_CMD_AST2600_CMD_LINE_SIZE) {
+	if ((op->host_addr & 0xff) + op->len > XDMA_CMD_AST2600_CMD_LINE_SIZE) {
 		unsigned int rem;
 		unsigned int total;
 
