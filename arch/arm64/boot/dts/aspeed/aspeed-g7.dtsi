@@ -1413,7 +1413,7 @@
 			reg = <0x0 0x14c20000 0x0 0x1000>;
 			interrupts-extended = <&soc0_intc3 0>;
 			clocks = <&syscon1 AST2700_SOC1_CLK_GATE_I3C0CLK>;
-			resets = <&syscon1 ASPEED_RESET_I3C0>;
+			resets = <&syscon1 ASPEED_RESET_I3C0>, <&syscon1 ASPEED_RESET_I3CDMA>;
 			pinctrl-names = "default";
 			pinctrl-0 = <&pinctrl_i3c0_default>;
 			status = "disabled";
@@ -1426,7 +1426,7 @@
 			reg = <0x0 0x14c21000 0x0 0x1000>;
 			interrupts-extended = <&soc0_intc3 1>;
 			clocks = <&syscon1 AST2700_SOC1_CLK_GATE_I3C1CLK>;
-			resets = <&syscon1 ASPEED_RESET_I3C1>;
+			resets = <&syscon1 ASPEED_RESET_I3C1>, <&syscon1 ASPEED_RESET_I3CDMA>;
 			pinctrl-names = "default";
 			pinctrl-0 = <&pinctrl_i3c1_default>;
 			status = "disabled";
@@ -1439,7 +1439,7 @@
 			reg = <0x0 0x14c22000 0x0 0x1000>;
 			interrupts-extended = <&soc0_intc3 2>;
 			clocks = <&syscon1 AST2700_SOC1_CLK_GATE_I3C2CLK>;
-			resets = <&syscon1 ASPEED_RESET_I3C2>;
+			resets = <&syscon1 ASPEED_RESET_I3C2>, <&syscon1 ASPEED_RESET_I3CDMA>;
 			pinctrl-names = "default";
 			pinctrl-0 = <&pinctrl_i3c2_default>;
 			status = "disabled";
@@ -1452,7 +1452,7 @@
 			reg = <0x0 0x14c23000 0x0 0x1000>;
 			interrupts-extended = <&soc0_intc3 3>;
 			clocks = <&syscon1 AST2700_SOC1_CLK_GATE_I3C3CLK>;
-			resets = <&syscon1 ASPEED_RESET_I3C3>;
+			resets = <&syscon1 ASPEED_RESET_I3C3>, <&syscon1 ASPEED_RESET_I3CDMA>;
 			pinctrl-names = "default";
 			pinctrl-0 = <&pinctrl_i3c3_default>;
 			status = "disabled";
@@ -1465,7 +1465,7 @@
 			reg = <0x0 0x14c24000 0x0 0x1000>;
 			interrupts-extended = <&soc0_intc3 4>;
 			clocks = <&syscon1 AST2700_SOC1_CLK_GATE_I3C4CLK>;
-			resets = <&syscon1 ASPEED_RESET_I3C4>;
+			resets = <&syscon1 ASPEED_RESET_I3C4>, <&syscon1 ASPEED_RESET_I3CDMA>;
 			pinctrl-names = "default";
 			pinctrl-0 = <&pinctrl_i3c4_default>;
 			status = "disabled";
@@ -1478,7 +1478,7 @@
 			reg = <0x0 0x14c25000 0x0 0x1000>;
 			interrupts-extended = <&soc0_intc3 5>;
 			clocks = <&syscon1 AST2700_SOC1_CLK_GATE_I3C5CLK>;
-			resets = <&syscon1 ASPEED_RESET_I3C5>;
+			resets = <&syscon1 ASPEED_RESET_I3C5>, <&syscon1 ASPEED_RESET_I3CDMA>;
 			pinctrl-names = "default";
 			pinctrl-0 = <&pinctrl_i3c5_default>;
 			status = "disabled";
@@ -1491,7 +1491,7 @@
 			reg = <0x0 0x14c26000 0x0 0x1000>;
 			interrupts-extended = <&soc0_intc3 6>;
 			clocks = <&syscon1 AST2700_SOC1_CLK_GATE_I3C6CLK>;
-			resets = <&syscon1 ASPEED_RESET_I3C6>;
+			resets = <&syscon1 ASPEED_RESET_I3C6>, <&syscon1 ASPEED_RESET_I3CDMA>;
 			pinctrl-names = "default";
 			pinctrl-0 = <&pinctrl_i3c6_default>;
 			status = "disabled";
@@ -1504,7 +1504,7 @@
 			reg = <0x0 0x14c27000 0x0 0x1000>;
 			interrupts-extended = <&soc0_intc3 7>;
 			clocks = <&syscon1 AST2700_SOC1_CLK_GATE_I3C7CLK>;
-			resets = <&syscon1 ASPEED_RESET_I3C7>;
+			resets = <&syscon1 ASPEED_RESET_I3C7>, <&syscon1 ASPEED_RESET_I3CDMA>;
 			pinctrl-names = "default";
 			pinctrl-0 = <&pinctrl_i3c7_default>;
 			status = "disabled";
@@ -1517,7 +1517,7 @@
 			reg = <0x0 0x14c28000 0x0 0x1000>;
 			interrupts-extended = <&soc0_intc3 8>;
 			clocks = <&syscon1 AST2700_SOC1_CLK_GATE_I3C8CLK>;
-			resets = <&syscon1 ASPEED_RESET_I3C8>;
+			resets = <&syscon1 ASPEED_RESET_I3C8>, <&syscon1 ASPEED_RESET_I3CDMA>;
 			pinctrl-names = "default";
 			pinctrl-0 = <&pinctrl_i3c8_default>;
 			status = "disabled";
@@ -1530,7 +1530,7 @@
 			reg = <0x0 0x14c29000 0x0 0x1000>;
 			interrupts-extended = <&soc0_intc3 9>;
 			clocks = <&syscon1 AST2700_SOC1_CLK_GATE_I3C9CLK>;
-			resets = <&syscon1 ASPEED_RESET_I3C9>;
+			resets = <&syscon1 ASPEED_RESET_I3C9>, <&syscon1 ASPEED_RESET_I3CDMA>;
 			pinctrl-names = "default";
 			pinctrl-0 = <&pinctrl_i3c9_default>;
 			status = "disabled";
@@ -1543,7 +1543,7 @@
 			reg = <0x0 0x14c2a000 0x0 0x1000>;
 			interrupts-extended = <&soc0_intc3 10>;
 			clocks = <&syscon1 AST2700_SOC1_CLK_GATE_I3C10CLK>;
-			resets = <&syscon1 ASPEED_RESET_I3C10>;
+			resets = <&syscon1 ASPEED_RESET_I3C10>, <&syscon1 ASPEED_RESET_I3CDMA>;
 			pinctrl-names = "default";
 			pinctrl-0 = <&pinctrl_i3c10_default>;
 			status = "disabled";
@@ -1556,7 +1556,7 @@
 			reg = <0x0 0x14c2b000 0x0 0x1000>;
 			interrupts-extended = <&soc0_intc3 11>;
 			clocks = <&syscon1 AST2700_SOC1_CLK_GATE_I3C11CLK>;
-			resets = <&syscon1 ASPEED_RESET_I3C11>;
+			resets = <&syscon1 ASPEED_RESET_I3C11>, <&syscon1 ASPEED_RESET_I3CDMA>;
 			pinctrl-names = "default";
 			pinctrl-0 = <&pinctrl_i3c11_default>;
 			status = "disabled";
@@ -1569,7 +1569,7 @@
 			reg = <0x0 0x14c2c000 0x0 0x1000>;
 			interrupts-extended = <&soc0_intc3 12>;
 			clocks = <&syscon1 AST2700_SOC1_CLK_GATE_I3C12CLK>;
-			resets = <&syscon1 ASPEED_RESET_I3C12>;
+			resets = <&syscon1 ASPEED_RESET_I3C12>, <&syscon1 ASPEED_RESET_I3CDMA>;
 			pinctrl-names = "default";
 			pinctrl-0 = <&pinctrl_hvi3c12_default>;
 			status = "disabled";
@@ -1582,7 +1582,7 @@
 			reg = <0x0 0x14c2d000 0x0 0x1000>;
 			interrupts-extended = <&soc0_intc3 13>;
 			clocks = <&syscon1 AST2700_SOC1_CLK_GATE_I3C13CLK>;
-			resets = <&syscon1 ASPEED_RESET_I3C13>;
+			resets = <&syscon1 ASPEED_RESET_I3C13>, <&syscon1 ASPEED_RESET_I3CDMA>;
 			pinctrl-names = "default";
 			pinctrl-0 = <&pinctrl_hvi3c13_default>;
 			status = "disabled";
@@ -1595,7 +1595,7 @@
 			reg = <0x0 0x14c2e000 0x0 0x1000>;
 			interrupts-extended = <&soc0_intc3 14>;
 			clocks = <&syscon1 AST2700_SOC1_CLK_GATE_I3C14CLK>;
-			resets = <&syscon1 ASPEED_RESET_I3C14>;
+			resets = <&syscon1 ASPEED_RESET_I3C14>, <&syscon1 ASPEED_RESET_I3CDMA>;
 			pinctrl-names = "default";
 			pinctrl-0 = <&pinctrl_hvi3c14_default>;
 			status = "disabled";
@@ -1608,7 +1608,7 @@
 			reg = <0x0 0x14c2f000 0x0 0x1000>;
 			interrupts-extended = <&soc0_intc3 15>;
 			clocks = <&syscon1 AST2700_SOC1_CLK_GATE_I3C15CLK>;
-			resets = <&syscon1 ASPEED_RESET_I3C15>;
+			resets = <&syscon1 ASPEED_RESET_I3C15>, <&syscon1 ASPEED_RESET_I3CDMA>;
 			pinctrl-names = "default";
 			pinctrl-0 = <&pinctrl_hvi3c15_default>;
 			status = "disabled";
