@@ -818,13 +818,15 @@ static void i3c_ccc_cmd_dest_cleanup(struct i3c_ccc_cmd_dest *dest)
 
 static void i3c_ccc_cmd_init(struct i3c_ccc_cmd *cmd, bool rnw, u8 id,
 			     struct i3c_ccc_cmd_dest *dests,
-			     unsigned int ndests)
+			     unsigned int ndests, bool dbp, u8 db)
 {
 	cmd->rnw = rnw ? 1 : 0;
 	cmd->id = id;
 	cmd->dests = dests;
 	cmd->ndests = ndests;
 	cmd->err = I3C_ERROR_UNKNOWN;
+	cmd->dbp = dbp;
+	cmd->db = db;
 }
 
 static int i3c_master_send_ccc_cmd_locked(struct i3c_master_controller *master,
@@ -940,8 +942,8 @@ static int i3c_master_rstdaa_locked(struct i3c_master_controller *master,
 
 	i3c_ccc_cmd_dest_init(&dest, addr, 0);
 	i3c_ccc_cmd_init(&cmd, false,
-			 I3C_CCC_RSTDAA(addr == I3C_BROADCAST_ADDR),
-			 &dest, 1);
+			 I3C_CCC_RSTDAA(addr == I3C_BROADCAST_ADDR), &dest, 1,
+			 false, 0);
 	ret = i3c_master_send_ccc_cmd_locked(master, &cmd);
 	i3c_ccc_cmd_dest_cleanup(&dest);
 
@@ -971,7 +973,7 @@ int i3c_master_entdaa_locked(struct i3c_master_controller *master)
 	int ret;
 
 	i3c_ccc_cmd_dest_init(&dest, I3C_BROADCAST_ADDR, 0);
-	i3c_ccc_cmd_init(&cmd, false, I3C_CCC_ENTDAA, &dest, 1);
+	i3c_ccc_cmd_init(&cmd, false, I3C_CCC_ENTDAA, &dest, 1, false, 0);
 	ret = i3c_master_send_ccc_cmd_locked(master, &cmd);
 	i3c_ccc_cmd_dest_cleanup(&dest);
 
@@ -993,10 +995,9 @@ static int i3c_master_enec_disec_locked(struct i3c_master_controller *master,
 
 	events->events = evts;
 	i3c_ccc_cmd_init(&cmd, false,
-			 enable ?
-			 I3C_CCC_ENEC(addr == I3C_BROADCAST_ADDR) :
-			 I3C_CCC_DISEC(addr == I3C_BROADCAST_ADDR),
-			 &dest, 1);
+			 enable ? I3C_CCC_ENEC(addr == I3C_BROADCAST_ADDR) :
+				  I3C_CCC_DISEC(addr == I3C_BROADCAST_ADDR),
+			 &dest, 1, false, 0);
 	ret = i3c_master_send_ccc_cmd_locked(master, &cmd);
 	i3c_ccc_cmd_dest_cleanup(&dest);
 
@@ -1129,7 +1130,7 @@ int i3c_master_defslvs_locked(struct i3c_master_controller *master)
 		desc++;
 	}
 
-	i3c_ccc_cmd_init(&cmd, false, I3C_CCC_DEFSLVS, &dest, 1);
+	i3c_ccc_cmd_init(&cmd, false, I3C_CCC_DEFSLVS, &dest, 1, false, 0);
 	ret = i3c_master_send_ccc_cmd_locked(master, &cmd);
 	i3c_ccc_cmd_dest_cleanup(&dest);
 
@@ -1144,7 +1145,7 @@ int i3c_master_setaasa_locked(struct i3c_master_controller *master)
 	int ret;
 
 	i3c_ccc_cmd_dest_init(&dest, I3C_BROADCAST_ADDR, 0);
-	i3c_ccc_cmd_init(&cmd, false, I3C_CCC_SETAASA, &dest, 1);
+	i3c_ccc_cmd_init(&cmd, false, I3C_CCC_SETAASA, &dest, 1, false, 0);
 
 	ret = i3c_master_send_ccc_cmd_locked(master, &cmd);
 	i3c_ccc_cmd_dest_cleanup(&dest);
@@ -1165,7 +1166,7 @@ int i3c_master_sethid_locked(struct i3c_master_controller *master)
 		return -ENOMEM;
 
 	sethid->hid = 0;
-	i3c_ccc_cmd_init(&cmd, false, I3C_CCC_SETHID, &dest, 1);
+	i3c_ccc_cmd_init(&cmd, false, I3C_CCC_SETHID, &dest, 1, false, 0);
 
 	ret = i3c_master_send_ccc_cmd_locked(master, &cmd);
 	i3c_ccc_cmd_dest_cleanup(&dest);
@@ -1191,8 +1192,8 @@ static int i3c_master_setda_locked(struct i3c_master_controller *master,
 
 	setda->addr = newaddr << 1;
 	i3c_ccc_cmd_init(&cmd, false,
-			 setdasa ? I3C_CCC_SETDASA : I3C_CCC_SETNEWDA,
-			 &dest, 1);
+			 setdasa ? I3C_CCC_SETDASA : I3C_CCC_SETNEWDA, &dest, 1,
+			 false, 0);
 	ret = i3c_master_send_ccc_cmd_locked(master, &cmd);
 	i3c_ccc_cmd_dest_cleanup(&dest);
 
@@ -1230,7 +1231,7 @@ int i3c_master_getmrl_locked(struct i3c_master_controller *master,
 	if (!(info->bcr & I3C_BCR_IBI_PAYLOAD))
 		dest.payload.len -= 1;
 
-	i3c_ccc_cmd_init(&cmd, true, I3C_CCC_GETMRL, &dest, 1);
+	i3c_ccc_cmd_init(&cmd, true, I3C_CCC_GETMRL, &dest, 1, false, 0);
 	ret = i3c_master_send_ccc_cmd_locked(master, &cmd);
 	if (ret)
 		goto out;
@@ -1265,7 +1266,7 @@ int i3c_master_getmwl_locked(struct i3c_master_controller *master,
 	if (!mwl)
 		return -ENOMEM;
 
-	i3c_ccc_cmd_init(&cmd, true, I3C_CCC_GETMWL, &dest, 1);
+	i3c_ccc_cmd_init(&cmd, true, I3C_CCC_GETMWL, &dest, 1, false, 0);
 	ret = i3c_master_send_ccc_cmd_locked(master, &cmd);
 	if (ret)
 		goto out;
@@ -1306,7 +1307,8 @@ int i3c_master_setmrl_locked(struct i3c_master_controller *master,
 	mrl->ibi_len = ibi_len;
 	info->max_read_len = read_len;
 	info->max_ibi_len = mrl->ibi_len;
-	i3c_ccc_cmd_init(&cmd, false, I3C_CCC_SETMRL(false), &dest, 1);
+	i3c_ccc_cmd_init(&cmd, false, I3C_CCC_SETMRL(false), &dest, 1, false,
+			 0);
 
 	ret = i3c_master_send_ccc_cmd_locked(master, &cmd);
 	i3c_ccc_cmd_dest_cleanup(&dest);
@@ -1328,7 +1330,8 @@ int i3c_master_setmwl_locked(struct i3c_master_controller *master,
 
 	mwl->len = cpu_to_be16(write_len);
 	info->max_write_len = write_len;
-	i3c_ccc_cmd_init(&cmd, false, I3C_CCC_SETMWL(false), &dest, 1);
+	i3c_ccc_cmd_init(&cmd, false, I3C_CCC_SETMWL(false), &dest, 1, false,
+			 0);
 
 	ret = i3c_master_send_ccc_cmd_locked(master, &cmd);
 	i3c_ccc_cmd_dest_cleanup(&dest);
@@ -1349,7 +1352,7 @@ static int i3c_master_getmxds_locked(struct i3c_master_controller *master,
 	if (!getmaxds)
 		return -ENOMEM;
 
-	i3c_ccc_cmd_init(&cmd, true, I3C_CCC_GETMXDS, &dest, 1);
+	i3c_ccc_cmd_init(&cmd, true, I3C_CCC_GETMXDS, &dest, 1, false, 0);
 	ret = i3c_master_send_ccc_cmd_locked(master, &cmd);
 	if (ret)
 		goto out;
@@ -1385,7 +1388,7 @@ static int i3c_master_gethdrcap_locked(struct i3c_master_controller *master,
 	if (!gethdrcap)
 		return -ENOMEM;
 
-	i3c_ccc_cmd_init(&cmd, true, I3C_CCC_GETHDRCAP, &dest, 1);
+	i3c_ccc_cmd_init(&cmd, true, I3C_CCC_GETHDRCAP, &dest, 1, false, 0);
 	ret = i3c_master_send_ccc_cmd_locked(master, &cmd);
 	if (ret)
 		goto out;
@@ -1415,7 +1418,7 @@ static int i3c_master_getpid_locked(struct i3c_master_controller *master,
 	if (!getpid)
 		return -ENOMEM;
 
-	i3c_ccc_cmd_init(&cmd, true, I3C_CCC_GETPID, &dest, 1);
+	i3c_ccc_cmd_init(&cmd, true, I3C_CCC_GETPID, &dest, 1, false, 0);
 	ret = i3c_master_send_ccc_cmd_locked(master, &cmd);
 	if (ret)
 		goto out;
@@ -1445,7 +1448,7 @@ static int i3c_master_getbcr_locked(struct i3c_master_controller *master,
 	if (!getbcr)
 		return -ENOMEM;
 
-	i3c_ccc_cmd_init(&cmd, true, I3C_CCC_GETBCR, &dest, 1);
+	i3c_ccc_cmd_init(&cmd, true, I3C_CCC_GETBCR, &dest, 1, false, 0);
 	ret = i3c_master_send_ccc_cmd_locked(master, &cmd);
 	if (ret)
 		goto out;
@@ -1470,7 +1473,7 @@ static int i3c_master_getdcr_locked(struct i3c_master_controller *master,
 	if (!getdcr)
 		return -ENOMEM;
 
-	i3c_ccc_cmd_init(&cmd, true, I3C_CCC_GETDCR, &dest, 1);
+	i3c_ccc_cmd_init(&cmd, true, I3C_CCC_GETDCR, &dest, 1, false, 0);
 	ret = i3c_master_send_ccc_cmd_locked(master, &cmd);
 	if (ret)
 		goto out;
@@ -3391,7 +3394,7 @@ int i3c_dev_getstatus_locked(struct i3c_dev_desc *dev,
 	if (!getsts)
 		return -ENOMEM;
 
-	i3c_ccc_cmd_init(&cmd, true, I3C_CCC_GETSTATUS, &dest, 1);
+	i3c_ccc_cmd_init(&cmd, true, I3C_CCC_GETSTATUS, &dest, 1, false, 0);
 	ret = i3c_master_send_ccc_cmd_locked(master, &cmd);
 	if (ret)
 		goto out;
