@@ -8,14 +8,8 @@
 	model = "AST2700-NCSI";
 };
 
-&mac0 {
-	status = "okay";
-
-	phy-mode = "rmii";
-	use-ncsi;
-
-	pinctrl-names = "default";
-	pinctrl-0 = <&pinctrl_rmii0_default>;
+&sgpios {
+	status = "disabled";
 };
 
 &mac1 {
