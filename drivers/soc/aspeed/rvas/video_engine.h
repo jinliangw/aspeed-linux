@@ -63,6 +63,8 @@
 #define AST_VIDEO_COMPRESS_DATA_COUNT		0x070		/* Video Total Size of Compressed Video Stream Read Back Register */
 #define AST_VIDEO_COMPRESS_BLOCK_COUNT		0x074		/* Video Total Number of Compressed Video Block Read Back Register */
 #define AST_VIDEO_COMPRESS_FRAME_END		0x078		/* Video Frame-end offset of compressed video stream buffer read back Register */
+#define AST_VIDEO_COMPRESS_FRAME_COUNT_RB	0x7C
+#define AST_VIDEO_JPEG_SIZE			        0x084
 
 #define AST_VIDEO_CTRL			0x300		/* Video Control Register */
 #define AST_VIDEO_INT_EN		0x304		/* Video interrupt Enable */
@@ -126,11 +128,6 @@
 #define G6_VIDEO_MULTI_JPEG_MODE			BIT(30)
 #define G6_VIDEO_JPEG__COUNT(x)			((x) << 24)
 #define G6_VIDEO_FRAME_CT_MASK			(0x3f << 24)
-
-/*	AST_VIDEO_DIRECT_CTRL	0x010		Video Direct Frame buffer mode control Register VR008[5]=1 */
-#define VIDEO_FETCH_TIMING(x)			((x) << 16)
-#define VIDEO_FETCH_LINE_OFFSET(x)		((x) & 0xffff)
-
 //x * source frame rate / 60
 #define VIDEO_FRAME_RATE_CTRL(x)			((x) << 16)
 #define VIDEO_HSYNC_POLARITY_CTRL			BIT(15)
@@ -153,6 +150,10 @@
 // if bit 5 : 0
 #define VIDEO_INTERNAL_DE				BIT(4)
 #define VIDEO_EXT_ADC_ATTRIBUTE				BIT(3)
+
+/*	AST_VIDEO_DIRECT_CTRL	0x010		Video Direct Frame buffer mode control Register VR008[5]=1 */
+#define VIDEO_FETCH_TIMING(x)			((x) << 16)
+#define VIDEO_FETCH_LINE_OFFSET(x)		((x) & 0xffff)
 
 /*	 AST_VIDEO_CAPTURE_WIN	0x030		Video Capturing Window Setting Register */
 #define VIDEO_CAPTURE_V(x)				((x) & 0x7ff)
@@ -228,18 +229,6 @@
 #define VIDEO_MODE_DETECT_WDT			BIT(0)
 
 /***********************************************************************/
-struct VideoMem {
-	dma_addr_t	phy;
-	void *pVirt;
-	u32 size;
-};
-
-struct VideoEngineMem {
-	struct VideoMem captureBuf0;
-	struct VideoMem captureBuf1;
-	struct VideoMem jpegTable;
-};
-
 struct ast_capture_mode {
 	u8	engine_idx;					//set 0: engine 0, engine 1
 	u8	differential;					//set 0: full, 1:diff frame

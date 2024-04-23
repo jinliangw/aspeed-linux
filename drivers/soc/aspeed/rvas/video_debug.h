@@ -26,4 +26,10 @@
 #define VIDEO_ENG_DBG(fmt, args...) do; while (0)
 #endif // RVAS_VIDEO_DEBUG
 
+#ifdef HARDWARE_ENGINE_DEBUG
+#define HW_ENG_DBG(fmt, args...) ({ dev_printk(KERNEL_INFO, pAstRVAS->pdev, "%s() " fmt, __func__, ## args); })
+#else
+#define HW_ENG_DBG(fmt, args...) do; while (0)
+#endif // RVAS_VIDEO_DEBUG
+
 #endif // AST_VIDEO_DEBUG_H_

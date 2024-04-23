@@ -407,6 +407,18 @@ struct EngineInfo {
 	u8 finished;
 };
 
+struct VideoMem {
+	dma_addr_t	phy;
+	void *pVirt;
+	u32 size;
+};
+
+struct VideoEngineMem {
+	struct VideoMem captureBuf0;
+	struct VideoMem captureBuf1;
+	struct VideoMem jpegTable;
+};
+
 struct AstRVAS {
 	struct miscdevice rvas_dev;
 	void *pdev;
@@ -446,6 +458,9 @@ struct AstRVAS {
 	struct clk *eclk;
 	struct clk *rvasclk;
 	void __iomem *dp_base;
+	u32 sequence;
+	struct VideoEngineMem vem;
+	u8 veClkOn;
 };
 
 //
