@@ -321,6 +321,13 @@ static int AST1700_clk_init(struct device_node *ast1700_node)
 		pr_err("soc1 failed to register reset controller\n");
 		return ret;
 	}
+	/*
+	 * Ast1700 A0 workaround:
+	 * I3C reset should assert all of the I3C controllers simultaneously.
+	 * Otherwise, it may lead to failure in accessing I3C registers.
+	 */
+	for (id = AST1700_RESET_I3C0; id <= AST1700_RESET_I3C15; id++)
+		ast1700_reset_assert(&reset->rcdev, id);
 
 	hw = clk_hw_register_fixed_rate(NULL, CREATE_CLK_NAME(id, "clkin"), NULL, 0, AST1700_CLK_25MHZ);
 	if (IS_ERR(hw))
