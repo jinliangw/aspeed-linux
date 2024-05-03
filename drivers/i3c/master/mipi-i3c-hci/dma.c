@@ -308,6 +308,8 @@ static int hci_dma_init(struct i3c_hci *hci)
 		ret = -ENOMEM;
 		if (!rh->ibi_status || !rh->ibi_data)
 			goto err_out;
+		rh_reg_write(IBI_STATUS_RING_BASE_LO, lo32(rh->ibi_status_dma));
+		rh_reg_write(IBI_STATUS_RING_BASE_HI, hi32(rh->ibi_status_dma));
 		rh->ibi_data_dma =
 			dma_map_single(&hci->master.dev, rh->ibi_data,
 				       ibi_data_ring_sz, DMA_FROM_DEVICE);
@@ -316,6 +318,8 @@ static int hci_dma_init(struct i3c_hci *hci)
 			ret = -ENOMEM;
 			goto err_out;
 		}
+		rh_reg_write(IBI_DATA_RING_BASE_LO, lo32(rh->ibi_data_dma));
+		rh_reg_write(IBI_DATA_RING_BASE_HI, hi32(rh->ibi_data_dma));
 
 		regval = FIELD_PREP(IBI_STATUS_RING_SIZE,
 				    rh->ibi_status_entries) |
