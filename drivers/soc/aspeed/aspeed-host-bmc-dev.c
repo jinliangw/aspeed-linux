@@ -308,8 +308,7 @@ static int aspeed_pci_host_bmc_device_probe(struct pci_dev *pdev, const struct p
 		pci_bmc_dev->ast2600_msi_idx[VUART_MSI] = 16;
 	}
 
-	nr_entries = pci_alloc_irq_vectors(pdev, 1, BMC_MULTI_MSI,
-					   PCI_IRQ_MSIX | PCI_IRQ_MSI);
+	nr_entries = pci_alloc_irq_vectors(pdev, 1, BMC_MULTI_MSI, PCI_IRQ_MSI);
 	if (nr_entries < 0) {
 		pci_bmc_dev->legency_irq = 1;
 		pci_read_config_word(pdev, PCI_COMMAND, &config_cmd_val);
