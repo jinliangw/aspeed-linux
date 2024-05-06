@@ -782,7 +782,7 @@
 	};
 };
 
-/* AST2700 A0 i2c10 -> AST1060 i2c5 for PFR mailbox. */
+/* AST2700 A0 P0 i2c10 -> AST1060 i2c5 for PFR mailbox. */
 &i2c10 {
 	/* SMB_PCIE_BMC */
 	status = "okay";
@@ -794,7 +794,7 @@
 	};
 };
 
-/* AST2700 A1 i2c11 -> AST1060 i2c0 for PFR mailbox. */
+/* AST2700 A0 P1 i2c11 -> AST1060 i2c0 for PFR mailbox. */
 &i2c11 {
 	/* SMB_HSBP_BMC */
 	status = "okay";
