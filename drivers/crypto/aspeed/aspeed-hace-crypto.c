@@ -210,6 +210,13 @@ static int aspeed_sk_start(struct aspeed_hace_dev *hace_dev)
 		       ASPEED_HACE_SRC);
 	ast_hace_write(hace_dev, crypto_engine->cipher_dma_addr,
 		       ASPEED_HACE_DEST);
+#ifdef CONFIG_ARCH_DMA_ADDR_T_64BIT
+	ast_hace_write(hace_dev, crypto_engine->cipher_dma_addr >> 32,
+		       ASPEED_HACE_SRC_H);
+	ast_hace_write(hace_dev, crypto_engine->cipher_dma_addr >> 32,
+		       ASPEED_HACE_DEST_H);
+#endif
+
 	ast_hace_write(hace_dev, req->cryptlen, ASPEED_HACE_DATA_LEN);
 	ast_hace_write(hace_dev, rctx->enc_cmd, ASPEED_HACE_CMD);
 
@@ -334,6 +341,12 @@ static int aspeed_sk_start_sg(struct aspeed_hace_dev *hace_dev)
 	/* Trigger engines */
 	ast_hace_write(hace_dev, src_dma_addr, ASPEED_HACE_SRC);
 	ast_hace_write(hace_dev, dst_dma_addr, ASPEED_HACE_DEST);
+
+#ifdef CONFIG_ARCH_DMA_ADDR_T_64BIT
+	ast_hace_write(hace_dev, src_dma_addr >> 32, ASPEED_HACE_SRC_H);
+	ast_hace_write(hace_dev, dst_dma_addr >> 32, ASPEED_HACE_DEST_H);
+#endif
+
 	ast_hace_write(hace_dev, req->cryptlen, ASPEED_HACE_DATA_LEN);
 	ast_hace_write(hace_dev, rctx->enc_cmd, ASPEED_HACE_CMD);
 
@@ -382,6 +395,10 @@ static int aspeed_hace_skcipher_trigger(struct aspeed_hace_dev *hace_dev)
 
 	ast_hace_write(hace_dev, crypto_engine->cipher_ctx_dma,
 		       ASPEED_HACE_CONTEXT);
+#ifdef CONFIG_ARCH_DMA_ADDR_T_64BIT
+	ast_hace_write(hace_dev, crypto_engine->cipher_ctx_dma >> 32,
+		       ASPEED_HACE_CONTEXT_H);
+#endif
 
 	if (rctx->enc_cmd & HACE_CMD_IV_REQUIRE) {
 		if (rctx->enc_cmd & HACE_CMD_DES_SELECT)
@@ -1183,4 +1200,81 @@ void aspeed_register_hace_crypto_algs(struct aspeed_hace_dev *hace_dev)
 				   aspeed_crypto_algs_g6[i].alg.skcipher.base.base.cra_name);
 		}
 	}
+}
+
+static void aspeed_hace_crypto_done_task(unsigned long data)
+{
+	struct aspeed_hace_dev *hace_dev = (struct aspeed_hace_dev *)data;
+	struct aspeed_engine_crypto *crypto_engine = &hace_dev->crypto_engine;
+
+	crypto_engine->resume(hace_dev);
+}
+
+int aspeed_hace_crypto_init(struct aspeed_hace_dev *hace_dev)
+{
+	struct aspeed_engine_crypto *crypto_engine;
+	int rc;
+
+	crypto_engine = &hace_dev->crypto_engine;
+
+	/* Initialize crypto hardware engine structure for crypto */
+	hace_dev->crypt_engine_crypto = crypto_engine_alloc_init(hace_dev->dev,
+								 true);
+	if (!hace_dev->crypt_engine_crypto) {
+		rc = -ENOMEM;
+		goto end;
+	}
+
+	rc = crypto_engine_start(hace_dev->crypt_engine_crypto);
+	if (rc)
+		goto err_engine_crypto_start;
+
+	tasklet_init(&crypto_engine->done_task, aspeed_hace_crypto_done_task,
+		     (unsigned long)hace_dev);
+
+	/* Allocate DMA buffer for crypto engine context used */
+	crypto_engine->cipher_ctx =
+		dmam_alloc_coherent(hace_dev->dev,
+				    PAGE_SIZE,
+				    &crypto_engine->cipher_ctx_dma,
+				    GFP_KERNEL);
+	if (!crypto_engine->cipher_ctx) {
+		dev_err(hace_dev->dev, "Failed to allocate cipher ctx dma\n");
+		rc = -ENOMEM;
+		goto err_engine_crypto_start;
+	}
+
+	/* Allocate DMA buffer for crypto engine input used */
+	crypto_engine->cipher_addr =
+		dmam_alloc_coherent(hace_dev->dev,
+				    ASPEED_CRYPTO_SRC_DMA_BUF_LEN,
+				    &crypto_engine->cipher_dma_addr,
+				    GFP_KERNEL);
+	if (!crypto_engine->cipher_addr) {
+		dev_err(hace_dev->dev, "Failed to allocate cipher addr dma\n");
+		rc = -ENOMEM;
+		goto err_engine_crypto_start;
+	}
+
+	/* Allocate DMA buffer for crypto engine output used */
+	if (hace_dev->version == AST2600_VERSION ||
+	    hace_dev->version == AST2700_VERSION) {
+		crypto_engine->dst_sg_addr =
+			dmam_alloc_coherent(hace_dev->dev,
+					    ASPEED_CRYPTO_DST_DMA_BUF_LEN,
+					    &crypto_engine->dst_sg_dma_addr,
+					    GFP_KERNEL);
+		if (!crypto_engine->dst_sg_addr) {
+			dev_err(hace_dev->dev, "Failed to allocate dst_sg dma\n");
+			rc = -ENOMEM;
+			goto err_engine_crypto_start;
+		}
+	}
+
+	return 0;
+
+err_engine_crypto_start:
+	crypto_engine_exit(hace_dev->crypt_engine_crypto);
+end:
+	return rc;
 }
