@@ -841,7 +841,7 @@
 			reg = <0x0 0x12c1e000 0x0 0x1000>;
 			interrupts = <GIC_SPI 119 IRQ_TYPE_LEVEL_HIGH>;
 			clocks = <&syscon0 AST2700_SOC0_CLK_GATE_ECCCLK>;
-			resets = <&syscon0 ASPEED_RESET_ECC>;
+			resets = <&syscon0 ASPEED_RESET_HACE>;
 			status = "disabled";
 		};
 
