@@ -85,6 +85,7 @@ struct aspeed_pci_bmc_dev {
 
 	void __iomem *sio_mbox_reg;
 	struct uart_8250_port uart[VUART_MAX_PARMS];
+	int uart_line[VUART_MAX_PARMS];
 
 	/* Interrupt */
 	int ast2600_msi_idx[MSI_INDX];
@@ -466,9 +467,9 @@ static int aspeed_pci_host_bmc_device_probe(struct pci_dev *pdev, const struct p
 		pci_bmc_dev->uart[i].port.type = PORT_16550A;
 		pci_bmc_dev->uart[i].port.flags |= (UPF_IOREMAP | UPF_FIXED_PORT | UPF_FIXED_TYPE);
 		pci_bmc_dev->uart[i].port.regshift = 2;
-		rc = serial8250_register_8250_port(&pci_bmc_dev->uart[i]);
-		if (rc < 0) {
-			dev_err_probe(dev, rc, "Can't setup PCIe VUART\n");
+		pci_bmc_dev->uart_line[i] = serial8250_register_8250_port(&pci_bmc_dev->uart[i]);
+		if (pci_bmc_dev->uart_line[i] < 0) {
+			dev_err_probe(dev, pci_bmc_dev->uart_line[i], "Can't setup PCIe VUART\n");
 			goto out_unreg;
 		}
 	}
@@ -492,9 +493,15 @@ out_err:
 static void aspeed_pci_host_bmc_device_remove(struct pci_dev *pdev)
 {
 	struct aspeed_pci_bmc_dev *pci_bmc_dev = pci_get_drvdata(pdev);
+	int i;
 
-	free_irq(pci_bmc_dev->bmc_dev_irq, pdev);
-	free_irq(pci_bmc_dev->sio_mbox_irq, pdev);
+	for (i = 0; i < VUART_MAX_PARMS; i++)
+		serial8250_unregister_port(pci_bmc_dev->uart_line[i]);
+
+	free_irq(pci_bmc_dev->bmc_dev_irq, pci_bmc_dev);
+	free_irq(pci_bmc_dev->sio_mbox_irq, pci_bmc_dev);
+	sysfs_remove_bin_file(&pdev->dev.kobj, &pci_bmc_dev->bin0);
+	sysfs_remove_bin_file(&pdev->dev.kobj, &pci_bmc_dev->bin1);
 	misc_deregister(&pci_bmc_dev->miscdev);
 	pci_release_regions(pdev);
 	kfree(pci_bmc_dev);
@@ -519,28 +526,7 @@ static struct pci_driver aspeed_host_bmc_dev_driver = {
 	.remove		= aspeed_pci_host_bmc_device_remove,
 };
 
-static int __init aspeed_host_bmc_device_init(void)
-{
-	int ret;
-
-	/* register pci driver */
-	ret = pci_register_driver(&aspeed_host_bmc_dev_driver);
-	if (ret < 0) {
-		pr_err("pci-driver: can't register pci driver\n");
-		return ret;
-	}
-
-	return 0;
-}
-
-static void aspeed_host_bmc_device_exit(void)
-{
-	/* unregister pci driver */
-	pci_unregister_driver(&aspeed_host_bmc_dev_driver);
-}
-
-late_initcall(aspeed_host_bmc_device_init);
-module_exit(aspeed_host_bmc_device_exit);
+module_pci_driver(aspeed_host_bmc_dev_driver);
 
 MODULE_AUTHOR("Ryan Chen <ryan_chen@aspeedtech.com>");
 MODULE_DESCRIPTION("ASPEED Host BMC DEVICE Driver");
