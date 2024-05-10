@@ -820,8 +820,9 @@
 			compatible = "aspeed,ast2700-video-engine", "syscon";
 			reg = <0x0 0x120a0000 0x0 0x400>;
 			clocks = <&syscon0 AST2700_SOC0_CLK_GATE_VCLK>,
-				 <&syscon0 AST2700_SOC0_CLK_GATE_ECLK>;
-			clock-names = "vclk", "eclk";
+				 <&syscon0 AST2700_SOC0_CLK_GATE_ECLK>,
+				 <&syscon0 AST2700_SOC0_CLK_GATE_CRT2CLK>;
+			clock-names = "vclk", "eclk", "crt2clk";
 			interrupts = <GIC_SPI 7 IRQ_TYPE_LEVEL_HIGH>;
 			resets = <&syscon0 ASPEED_RESET_VIDEO>;
 			aspeed,scu = <&syscon0>;
@@ -830,15 +831,14 @@
 
 		video1: video@120a1000 {
 			compatible = "aspeed,ast2700-video-engine";
-			reg = <0x0 0x120a1000 0x0 0x400>,
-			      <0x0 0x12c14800 0x0 0x100>;
+			reg = <0x0 0x120a1000 0x0 0x400>;
 			clocks = <&syscon0 AST2700_SOC0_CLK_GATE_VCLK>,
-				 <&syscon0 AST2700_SOC0_CLK_GATE_ECLK>;
-			clock-names = "vclk", "eclk";
+				 <&syscon0 AST2700_SOC0_CLK_GATE_ECLK>,
+				 <&syscon0 AST2700_SOC0_CLK_GATE_CRT2CLK>;
+			clock-names = "vclk", "eclk", "crt2clk";
 			interrupts = <GIC_SPI 114 IRQ_TYPE_LEVEL_HIGH>;
 			resets = <&syscon0 ASPEED_RESET_VIDEO>;
 			aspeed,scu = <&syscon0>;
-			aspeed,video0 = <&video0>;
 			status = "disabled";
 		};
 
