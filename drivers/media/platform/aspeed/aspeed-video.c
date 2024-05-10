@@ -213,6 +213,8 @@
 #define VE_MEM_RESTRICT_END		0x314
 
 // SCU's registers
+#define  SCU_HW_REVISION_ID		GENMASK(23, 16)
+
 #define SCU_MISC_CTRL			0xC0
 #define  SCU_DPLL_SOURCE		BIT(20)
 
@@ -373,6 +375,7 @@ struct aspeed_video {
 	struct regmap *gfx;
 	struct regmap *video0;
 
+	u32 hw_revision;
 	u32 version;
 	u32 jpeg_mode;
 	u32 comp_size_read;
@@ -1625,7 +1628,7 @@ static void aspeed_video_set_resolution(struct aspeed_video *video)
 
 	/* Don't use direct mode below 1024 x 768 (irqs don't fire) */
 	if (video->input == VIDEO_INPUT_VGA && size < DIRECT_FETCH_THRESHOLD &&
-	    (video->version != 7)) {
+	    (video->version != 7 || video->hw_revision != 0)) {
 		v4l2_dbg(1, debug, &video->v4l2_dev, "Capture: Sync Mode\n");
 		aspeed_video_write(video, VE_TGS_0,
 				   FIELD_PREP(VE_TGS_FIRST,
@@ -1820,7 +1823,7 @@ static void aspeed_video_init_regs(struct aspeed_video *video)
 
 	/* Set mode detection defaults */
 	// 2700-A0 VE1 needs larger threshold to avoid constant res-chg
-	if (video->version == 7)
+	if (video->version == 7 && video->hw_revision == 0)
 		aspeed_video_write(video, VE_MODE_DETECT,
 				   FIELD_PREP(VE_MODE_DT_HOR_TOLER, 7) |
 				   FIELD_PREP(VE_MODE_DT_VER_TOLER, 7) |
@@ -2796,6 +2799,16 @@ static int aspeed_video_init(struct aspeed_video *video)
 	video->scu = syscon_regmap_lookup_by_phandle(dev->of_node, "aspeed,scu");
 	video->gfx = aspeed_regmap_lookup(dev->of_node, "aspeed,gfx");
 	video->video0 = aspeed_regmap_lookup(dev->of_node, "aspeed,video0");
+
+	if (video->version == 7 && !IS_ERR(video->scu)) {
+		u32 val;
+
+		regmap_read(video->scu, 0x00, &val);
+		video->hw_revision = FIELD_GET(SCU_HW_REVISION_ID, val);
+
+		if (video->id == 1 && video->hw_revision == 0 && IS_ERR(video->video0))
+			dev_err(dev, "can't find regmap for video0");
+	}
 
 	irq = irq_of_parse_and_map(dev->of_node, 0);
 	if (!irq) {
