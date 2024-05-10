@@ -47,6 +47,8 @@
 #define	 HOST2BMC_Q2_FULL_UNMASK	BIT(21)
 #define	 HOST2BMC_Q2_EMPTY_UNMASK	BIT(20)
 
+static DEFINE_IDA(bmc_device_ida);
+
 #define MSI_INDX		4
 #define VUART_MAX_PARMS		2
 
@@ -63,6 +65,7 @@ static int ast2700_msi_idx_table[MSI_INDX] = { 0, 11, 6, 5 };
 struct aspeed_pci_bmc_dev {
 	struct device *dev;
 	struct miscdevice miscdev;
+	int id;
 
 	unsigned long mem_bar_base;
 	unsigned long mem_bar_size;
@@ -101,7 +104,7 @@ struct aspeed_pci_bmc_dev {
 #define PCIE_DEVICE_SIO_ADDR		(0x2E * 4)
 #define BMC_MULTI_MSI	32
 
-#define DRIVER_NAME "ASPEED BMC DEVICE"
+#define DRIVER_NAME "aspeed-host-bmc-dev"
 
 static u16 vuart_ioport[VUART_MAX_PARMS];
 
@@ -316,6 +319,10 @@ static int aspeed_pci_host_bmc_device_probe(struct pci_dev *pdev, const struct p
 		goto out_err;
 	}
 
+	pci_bmc_dev->id = ida_simple_get(&bmc_device_ida, 0, 0, GFP_KERNEL);
+	if (pci_bmc_dev->id < 0)
+		goto out_err;
+
 	rc = pci_enable_device(pdev);
 	if (rc != 0) {
 		dev_err(&pdev->dev, "pci_enable_device() returned error %d\n", rc);
@@ -405,7 +412,8 @@ static int aspeed_pci_host_bmc_device_probe(struct pci_dev *pdev, const struct p
 	}
 
 	pci_bmc_dev->miscdev.minor = MISC_DYNAMIC_MINOR;
-	pci_bmc_dev->miscdev.name = DRIVER_NAME;
+	pci_bmc_dev->miscdev.name =
+		devm_kasprintf(dev, GFP_KERNEL, "%s%d", DRIVER_NAME, pci_bmc_dev->id);
 	pci_bmc_dev->miscdev.fops = &aspeed_pci_bmc_dev_fops;
 	pci_bmc_dev->miscdev.parent = dev;
 
@@ -416,7 +424,7 @@ static int aspeed_pci_host_bmc_device_probe(struct pci_dev *pdev, const struct p
 	}
 
 	rc = request_irq(pci_bmc_dev->irq_table[BMC_MSI], aspeed_pci_host_bmc_device_interrupt,
-			 IRQF_SHARED, "ASPEED BMC DEVICE", pci_bmc_dev);
+			 IRQF_SHARED, pci_bmc_dev->miscdev.name, pci_bmc_dev);
 	if (rc) {
 		pr_err("host bmc device Unable to get IRQ %d\n", rc);
 		goto out_unreg;
@@ -442,8 +450,10 @@ static int aspeed_pci_host_bmc_device_probe(struct pci_dev *pdev, const struct p
 	writel(0x01, pci_bmc_dev->pcie_sio_decode_addr + 0x04);
 	pci_bmc_dev->sio_mbox_reg = pci_bmc_dev->msg_bar_reg + 0x400;
 
-	rc = request_irq(pci_bmc_dev->irq_table[MBX_MSI], aspeed_pci_host_mbox_interrupt, IRQF_SHARED,
-			 "ASPEED SIO MBOX", pci_bmc_dev);
+	rc = request_irq(pci_bmc_dev->irq_table[MBX_MSI], aspeed_pci_host_mbox_interrupt,
+			 IRQF_SHARED,
+			 devm_kasprintf(dev, GFP_KERNEL, "aspeed-sio-mbox%d", pci_bmc_dev->id),
+			 pci_bmc_dev);
 	if (rc)
 		pr_err("host bmc device Unable to get IRQ %d\n", rc);
 
