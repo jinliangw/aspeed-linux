@@ -24,7 +24,7 @@
 #define PCI_BMC_BMC2HOST_STS		0x30040
 #define	 BMC2HOST_INT_STS_DOORBELL	BIT(31)
 #define	 BMC2HOST_ENABLE_INTB		BIT(30)
-/* */
+
 #define	 BMC2HOST_Q1_FULL		BIT(27)
 #define	 BMC2HOST_Q1_EMPTY		BIT(26)
 #define	 BMC2HOST_Q2_FULL		BIT(25)
@@ -37,7 +37,7 @@
 #define PCI_BMC_HOST2BMC_STS		0x30044
 #define	 HOST2BMC_INT_STS_DOORBELL	BIT(31)
 #define	 HOST2BMC_ENABLE_INTB		BIT(30)
-/* */
+
 #define	 HOST2BMC_Q1_FULL		BIT(27)
 #define	 HOST2BMC_Q1_EMPTY		BIT(26)
 #define	 HOST2BMC_Q2_FULL		BIT(25)
@@ -47,6 +47,9 @@
 #define	 HOST2BMC_Q2_FULL_UNMASK	BIT(21)
 #define	 HOST2BMC_Q2_EMPTY_UNMASK	BIT(20)
 
+#define MSI_INDX		4
+#define VUART_MAX_PARMS		2
+
 enum msi_index {
 	BMC_MSI,
 	MBX_MSI,
@@ -54,8 +57,8 @@ enum msi_index {
 	VUART1_MSI,
 };
 
-#define MSI_INDX		4
-#define VUART_MAX_PARMS		2
+static int ast2600_msi_idx_table[MSI_INDX] = { 4, 21, 16, 15 };
+static int ast2700_msi_idx_table[MSI_INDX] = { 0, 11, 6, 5 };
 
 struct aspeed_pci_bmc_dev {
 	struct device *dev;
@@ -87,11 +90,11 @@ struct aspeed_pci_bmc_dev {
 	struct uart_8250_port uart[VUART_MAX_PARMS];
 	int uart_line[VUART_MAX_PARMS];
 
-	/* Interrupt */
-	int ast2600_msi_idx[MSI_INDX];
-	int sio_mbox_irq;
-	int bmc_dev_irq;
-	int uart_irq[VUART_MAX_PARMS];
+	/* Interrupt
+	 * The index of array is using to enum msi_index
+	 */
+	int *msi_idx_table;
+	int irq_table[MSI_INDX];
 };
 
 #define HOST_BMC_QUEUE_SIZE			(16 * 4)
@@ -278,32 +281,23 @@ static irqreturn_t aspeed_pci_host_mbox_interrupt(int irq, void *dev_id)
 static void aspeed_pci_setup_irq_resource(struct pci_dev *pdev)
 {
 	struct aspeed_pci_bmc_dev *pci_bmc_dev = pci_get_drvdata(pdev);
-	int nr_entries;
+	int nr_entries, i;
+
+	/* Assign static msi index table by platform */
+	if (pdev->revision == 0x27)
+		pci_bmc_dev->msi_idx_table = ast2700_msi_idx_table;
+	else
+		pci_bmc_dev->msi_idx_table = ast2600_msi_idx_table;
 
 	nr_entries = pci_alloc_irq_vectors(pdev, 1, BMC_MULTI_MSI, PCI_IRQ_LEGACY | PCI_IRQ_MSI);
-	if (nr_entries <= 1) {
-		pci_bmc_dev->ast2600_msi_idx[BMC_MSI] = 0;
-		pci_bmc_dev->ast2600_msi_idx[MBX_MSI] = 0;
-		pci_bmc_dev->ast2600_msi_idx[VUART0_MSI] = 0;
-		pci_bmc_dev->ast2600_msi_idx[VUART1_MSI] = 0;
-	} else {
-		if (pdev->revision == 0x27) {
-			pci_bmc_dev->ast2600_msi_idx[BMC_MSI] = 0;
-			pci_bmc_dev->ast2600_msi_idx[MBX_MSI] = 11;
-			pci_bmc_dev->ast2600_msi_idx[VUART0_MSI] = 6;
-			pci_bmc_dev->ast2600_msi_idx[VUART1_MSI] = 5;
-		} else {
-			pci_bmc_dev->ast2600_msi_idx[BMC_MSI] = 4;
-			pci_bmc_dev->ast2600_msi_idx[MBX_MSI] = 21;
-			pci_bmc_dev->ast2600_msi_idx[VUART0_MSI] = 16;
-			pci_bmc_dev->ast2600_msi_idx[VUART1_MSI] = 15;
-		}
-	}
+	/* If number is one, use legacy interrupt or ONE MSI */
+	if (nr_entries <= 1)
+		/* Set all msi index to the first vector */
+		memset(pci_bmc_dev->msi_idx_table, 0, sizeof(int) * MSI_INDX);
 
-	pci_bmc_dev->bmc_dev_irq = pci_irq_vector(pdev, pci_bmc_dev->ast2600_msi_idx[BMC_MSI]);
-	pci_bmc_dev->sio_mbox_irq = pci_irq_vector(pdev, pci_bmc_dev->ast2600_msi_idx[MBX_MSI]);
-	pci_bmc_dev->uart_irq[0] = pci_irq_vector(pdev, pci_bmc_dev->ast2600_msi_idx[VUART0_MSI]);
-	pci_bmc_dev->uart_irq[1] = pci_irq_vector(pdev, pci_bmc_dev->ast2600_msi_idx[VUART1_MSI]);
+	/* Get msi irq number from vector */
+	for (i = 0; i < MSI_INDX; i++)
+		pci_bmc_dev->irq_table[i] = pci_irq_vector(pdev, pci_bmc_dev->msi_idx_table[i]);
 }
 
 static int aspeed_pci_host_bmc_device_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
@@ -421,7 +415,7 @@ static int aspeed_pci_host_bmc_device_probe(struct pci_dev *pdev, const struct p
 		goto out_free;
 	}
 
-	rc = request_irq(pci_bmc_dev->bmc_dev_irq, aspeed_pci_host_bmc_device_interrupt,
+	rc = request_irq(pci_bmc_dev->irq_table[BMC_MSI], aspeed_pci_host_bmc_device_interrupt,
 			 IRQF_SHARED, "ASPEED BMC DEVICE", pci_bmc_dev);
 	if (rc) {
 		pr_err("host bmc device Unable to get IRQ %d\n", rc);
@@ -448,7 +442,7 @@ static int aspeed_pci_host_bmc_device_probe(struct pci_dev *pdev, const struct p
 	writel(0x01, pci_bmc_dev->pcie_sio_decode_addr + 0x04);
 	pci_bmc_dev->sio_mbox_reg = pci_bmc_dev->msg_bar_reg + 0x400;
 
-	rc = request_irq(pci_bmc_dev->sio_mbox_irq, aspeed_pci_host_mbox_interrupt, IRQF_SHARED,
+	rc = request_irq(pci_bmc_dev->irq_table[MBX_MSI], aspeed_pci_host_mbox_interrupt, IRQF_SHARED,
 			 "ASPEED SIO MBOX", pci_bmc_dev);
 	if (rc)
 		pr_err("host bmc device Unable to get IRQ %d\n", rc);
@@ -457,7 +451,7 @@ static int aspeed_pci_host_bmc_device_probe(struct pci_dev *pdev, const struct p
 		vuart_ioport[i] = 0x3F8 - (i * 0x100);
 		pci_bmc_dev->uart[i].port.flags = UPF_SKIP_TEST | UPF_BOOT_AUTOCONF | UPF_SHARE_IRQ;
 		pci_bmc_dev->uart[i].port.uartclk = 115200 * 16;
-		pci_bmc_dev->uart[i].port.irq = pci_bmc_dev->uart_irq[i];
+		pci_bmc_dev->uart[i].port.irq = pci_bmc_dev->irq_table[VUART0_MSI + i];
 		pci_bmc_dev->uart[i].port.dev = &pdev->dev;
 		pci_bmc_dev->uart[i].port.iotype = UPIO_MEM32;
 		pci_bmc_dev->uart[i].port.iobase = 0;
@@ -498,8 +492,8 @@ static void aspeed_pci_host_bmc_device_remove(struct pci_dev *pdev)
 	for (i = 0; i < VUART_MAX_PARMS; i++)
 		serial8250_unregister_port(pci_bmc_dev->uart_line[i]);
 
-	free_irq(pci_bmc_dev->bmc_dev_irq, pci_bmc_dev);
-	free_irq(pci_bmc_dev->sio_mbox_irq, pci_bmc_dev);
+	free_irq(pci_bmc_dev->irq_table[BMC_MSI], pci_bmc_dev);
+	free_irq(pci_bmc_dev->irq_table[MBX_MSI], pci_bmc_dev);
 	sysfs_remove_bin_file(&pdev->dev.kobj, &pci_bmc_dev->bin0);
 	sysfs_remove_bin_file(&pdev->dev.kobj, &pci_bmc_dev->bin1);
 	misc_deregister(&pci_bmc_dev->miscdev);
