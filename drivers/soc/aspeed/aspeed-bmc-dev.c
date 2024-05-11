@@ -26,37 +26,6 @@ static DEFINE_IDA(bmc_device_ida);
 
 #define SCU_TRIGGER_MSI
 
-struct aspeed_bmc_device {
-	unsigned char *host2bmc_base_virt;
-	struct device *dev;
-	struct miscdevice	miscdev;
-	int id;
-	void __iomem	*reg_base;
-	void __iomem	*bmc_mem_virt;
-	dma_addr_t bmc_mem_phy;
-	struct bin_attribute	bin0;
-	struct bin_attribute	bin1;
-
-	/* Queue waiters for idle engine */
-	wait_queue_head_t tx_wait0;
-	wait_queue_head_t tx_wait1;
-	wait_queue_head_t rx_wait0;
-	wait_queue_head_t rx_wait1;
-#ifdef CONFIG_MACH_ASPEED_G7
-	struct regmap		*config;
-	struct regmap		*device;
-	struct regmap		*e2m;
-#else
-	struct regmap		*scu;
-	int pcie_irq;
-#endif
-	struct kernfs_node	*kn0;
-	struct kernfs_node	*kn1;
-
-	int pcie2lpc;
-	int irq;
-};
-
 #define BMC_MEM_BAR_SIZE		0x100000
 /* =================== AST2600 SCU Define ================================================ */
 #define ASPEED_SCU04				0x04
@@ -74,10 +43,10 @@ struct aspeed_bmc_device {
 #define ASPEED_BMC_MEM_BAR_REMAP	0xF18
 
 #define ASPEED_BMC_SHADOW_CTRL		0xF50
-#define  READ_ONLY_MASK					BIT(31)
-#define  MASK_BAR1						BIT(2)
-#define  MASK_BAR0						BIT(1)
-#define  SHADOW_CFG						BIT(0)
+#define  READ_ONLY_MASK				BIT(31)
+#define  MASK_BAR1					BIT(2)
+#define  MASK_BAR0					BIT(1)
+#define  SHADOW_CFG					BIT(0)
 
 #define ASPEED_BMC_HOST2BMC_Q1		0xA000
 #define ASPEED_BMC_HOST2BMC_Q2		0xA010
@@ -119,6 +88,55 @@ struct aspeed_bmc_device {
 
 #define ASPEED_SCU_BMC_DEV_CLASS	0xC68
 
+#define ASPEED_QUEUE_NUM 2
+enum queue_index {
+	QUEUE1 = 0,
+	QUEUE2,
+};
+
+struct aspeed_platform {
+	int (*init)(struct platform_device *pdev);
+	ssize_t (*queue_rx)(struct file *filp, struct kobject *kobj, struct bin_attribute *attr,
+			    char *buf, loff_t off, size_t count);
+	ssize_t (*queue_tx)(struct file *filp, struct kobject *kobj, struct bin_attribute *attr,
+			    char *buf, loff_t off, size_t count);
+};
+
+struct aspeed_queue_message {
+	/* Queue waiters for idle engine */
+	wait_queue_head_t tx_wait;
+	wait_queue_head_t rx_wait;
+	struct kernfs_node *kn;
+	struct bin_attribute bin;
+	int index;
+	struct aspeed_bmc_device *bmc_device;
+};
+
+struct aspeed_bmc_device {
+	unsigned char *host2bmc_base_virt;
+	struct device *dev;
+	struct miscdevice miscdev;
+	int id;
+	void __iomem *reg_base;
+	void __iomem *bmc_mem_virt;
+	dma_addr_t bmc_mem_phy;
+
+	int pcie2lpc;
+	int irq;
+
+	struct aspeed_queue_message queue[ASPEED_QUEUE_NUM];
+
+	struct aspeed_platform *platform;
+
+	/* AST2700 */
+	struct regmap *config;
+	struct regmap *device;
+	struct regmap *e2m;
+	/*AST2600*/
+	struct regmap *scu;
+	int pcie_irq;
+};
+
 static struct aspeed_bmc_device *file_aspeed_bmc_device(struct file *file)
 {
 	return container_of(file->private_data, struct aspeed_bmc_device,
@@ -137,8 +155,7 @@ static int aspeed_bmc_device_mmap(struct file *file, struct vm_area_struct *vma)
 	prot = pgprot_noncached(prot);
 
 	if (remap_pfn_range(vma, vma->vm_start,
-			    (bmc_device->bmc_mem_phy >> PAGE_SHIFT) + vma->vm_pgoff,
-			    vsize, prot))
+			    (bmc_device->bmc_mem_phy >> PAGE_SHIFT) + vma->vm_pgoff, vsize, prot))
 		return -EAGAIN;
 
 	return 0;
@@ -149,29 +166,26 @@ static const struct file_operations aspeed_bmc_device_fops = {
 	.mmap		= aspeed_bmc_device_mmap,
 };
 
-static ssize_t aspeed_host2bmc_queue1_rx(struct file *filp, struct kobject *kobj,
-					 struct bin_attribute *attr, char *buf,
-					 loff_t off, size_t count)
+static ssize_t aspeed_ast2600_queue_rx(struct file *filp, struct kobject *kobj,
+				       struct bin_attribute *attr, char *buf, loff_t off,
+				       size_t count)
 {
-	struct aspeed_bmc_device *bmc_device =
-				  dev_get_drvdata(container_of(kobj, struct device, kobj));
+	struct aspeed_queue_message *queue = attr->private;
+	struct aspeed_bmc_device *bmc_device = queue->bmc_device;
+	int index = queue->index;
 	u32 *data = (u32 *)buf;
-#ifndef CONFIG_MACH_ASPEED_G7
 	u32 scu_id;
-#endif
 	int ret;
 
-	ret = wait_event_interruptible(bmc_device->rx_wait0,
+	ret = wait_event_interruptible(queue->rx_wait,
 				       !(readl(bmc_device->reg_base + ASPEED_BMC_HOST2BMC_STS) &
-				       HOST2BMC_Q1_EMPTY));
+				       ((index == QUEUE1) ? HOST2BMC_Q1_EMPTY : HOST2BMC_Q2_EMPTY)));
 	if (ret)
 		return -EINTR;
 
-	data[0] = readl(bmc_device->reg_base + ASPEED_BMC_HOST2BMC_Q1);
-#ifdef CONFIG_MACH_ASPEED_G7
-	writel(BMC2HOST_INT_STS_DOORBELL | BMC2HOST_ENABLE_INTB,
-	       bmc_device->reg_base + ASPEED_BMC_BMC2HOST_STS);
-#else
+	data[0] = readl(bmc_device->reg_base +
+			((index == QUEUE1) ? ASPEED_BMC_HOST2BMC_Q1 : ASPEED_BMC_HOST2BMC_Q2));
+
 	regmap_read(bmc_device->scu, ASPEED_SCU04, &scu_id);
 	if (scu_id == AST2600A3_SCU04) {
 		writel(BMC2HOST_INT_STS_DOORBELL | BMC2HOST_ENABLE_INTB,
@@ -181,76 +195,34 @@ static ssize_t aspeed_host2bmc_queue1_rx(struct file *filp, struct kobject *kobj
 		regmap_update_bits(bmc_device->scu, 0x560, BIT(15), BIT(15));
 		regmap_update_bits(bmc_device->scu, 0x560, BIT(15), 0);
 	}
-#endif
+
 	return sizeof(u32);
 }
 
-static ssize_t aspeed_host2bmc_queue2_rx(struct file *filp, struct kobject *kobj,
-					 struct bin_attribute *attr, char *buf,
-					 loff_t off, size_t count)
+static ssize_t aspeed_ast2600_queue_tx(struct file *filp, struct kobject *kobj,
+				       struct bin_attribute *attr, char *buf, loff_t off,
+				       size_t count)
 {
-	struct aspeed_bmc_device *bmc_device =
-				  dev_get_drvdata(container_of(kobj, struct device, kobj));
-	u32 *data = (u32 *)buf;
-#ifndef CONFIG_MACH_ASPEED_G7
-	u32 scu_id;
-#endif
-	int ret;
-
-	ret = wait_event_interruptible(bmc_device->rx_wait1,
-				       !(readl(bmc_device->reg_base + ASPEED_BMC_HOST2BMC_STS) &
-				       HOST2BMC_Q2_EMPTY));
-	if (ret)
-		return -EINTR;
-
-	data[0] = readl(bmc_device->reg_base + ASPEED_BMC_HOST2BMC_Q2);
-#ifdef CONFIG_MACH_ASPEED_G7
-	writel(BMC2HOST_INT_STS_DOORBELL | BMC2HOST_ENABLE_INTB,
-	       bmc_device->reg_base + ASPEED_BMC_BMC2HOST_STS);
-#else
-	regmap_read(bmc_device->scu, ASPEED_SCU04, &scu_id);
-	if (scu_id == AST2600A3_SCU04) {
-		writel(BMC2HOST_INT_STS_DOORBELL | BMC2HOST_ENABLE_INTB,
-		       bmc_device->reg_base + ASPEED_BMC_BMC2HOST_STS);
-	} else {
-		//A0 : BIT(12) A1 : BIT(15)
-		regmap_update_bits(bmc_device->scu, 0x560, BIT(15), BIT(15));
-		regmap_update_bits(bmc_device->scu, 0x560, BIT(15), 0);
-	}
-#endif
-	return sizeof(u32);
-}
-
-static ssize_t aspeed_bmc2host_queue1_tx(struct file *filp, struct kobject *kobj,
-					 struct bin_attribute *attr, char *buf,
-					 loff_t off, size_t count)
-{
-	struct aspeed_bmc_device *bmc_device =
-				  dev_get_drvdata(container_of(kobj, struct device, kobj));
+	struct aspeed_queue_message *queue = attr->private;
+	struct aspeed_bmc_device *bmc_device = queue->bmc_device;
+	int index = queue->index;
 	u32 tx_buff;
-#ifndef CONFIG_MACH_ASPEED_G7
 	u32 scu_id;
-#endif
 	int ret;
 
 	if (count != sizeof(u32))
 		return -EINVAL;
 
-	ret = wait_event_interruptible(bmc_device->tx_wait0,
+	ret = wait_event_interruptible(queue->tx_wait,
 				       !(readl(bmc_device->reg_base + ASPEED_BMC_BMC2HOST_STS) &
-				       BMC2HOST_Q1_FULL));
+				       ((index == QUEUE1) ? BMC2HOST_Q1_FULL : BMC2HOST_Q2_FULL)));
 	if (ret)
 		return -EINTR;
 
-//	if (copy_from_user((void *)&tx_buff, buf, sizeof(u32)))
-//		return -EFAULT;
 	memcpy(&tx_buff, buf, 4);
-	writel(tx_buff, bmc_device->reg_base + ASPEED_BMC_BMC2HOST_Q1);
+	writel(tx_buff, bmc_device->reg_base + ((index == QUEUE1) ? ASPEED_BMC_BMC2HOST_Q1 :
+								    ASPEED_BMC_BMC2HOST_Q2));
 
-#ifdef CONFIG_MACH_ASPEED_G7
-	writel(BMC2HOST_INT_STS_DOORBELL | BMC2HOST_ENABLE_INTB,
-	       bmc_device->reg_base + ASPEED_BMC_BMC2HOST_STS);
-#else
 	/* trigger to host
 	 * Only After AST2600A3 support DoorBell MSI
 	 */
@@ -263,56 +235,65 @@ static ssize_t aspeed_bmc2host_queue1_tx(struct file *filp, struct kobject *kobj
 		regmap_update_bits(bmc_device->scu, 0x560, BIT(15), BIT(15));
 		regmap_update_bits(bmc_device->scu, 0x560, BIT(15), 0);
 	}
-#endif
+
 	return sizeof(u32);
 }
 
-static ssize_t aspeed_bmc2host_queue2_tx(struct file *filp, struct kobject *kobj,
-					 struct bin_attribute *attr, char *buf,
-					 loff_t off, size_t count)
+static ssize_t aspeed_ast2700_queue_rx(struct file *filp, struct kobject *kobj,
+				       struct bin_attribute *attr, char *buf, loff_t off,
+				       size_t count)
 {
-	struct aspeed_bmc_device *bmc_device =
-				  dev_get_drvdata(container_of(kobj, struct device, kobj));
-	u32 tx_buff = 0;
-#ifndef CONFIG_MACH_ASPEED_G7
-	u32 scu_id;
-#endif
+	struct aspeed_queue_message *queue = attr->private;
+	struct aspeed_bmc_device *bmc_device = queue->bmc_device;
+	int index = queue->index;
+	u32 *data = (u32 *)buf;
+	int ret;
+
+	ret = wait_event_interruptible(queue->rx_wait,
+				       !(readl(bmc_device->reg_base + ASPEED_BMC_HOST2BMC_STS) &
+				       ((index == QUEUE1) ? HOST2BMC_Q1_EMPTY : HOST2BMC_Q2_EMPTY)));
+	if (ret)
+		return -EINTR;
+
+	data[0] = readl(bmc_device->reg_base +
+			((index == QUEUE1) ? ASPEED_BMC_HOST2BMC_Q1 : ASPEED_BMC_HOST2BMC_Q2));
+
+	writel(BMC2HOST_INT_STS_DOORBELL | BMC2HOST_ENABLE_INTB,
+	       bmc_device->reg_base + ASPEED_BMC_BMC2HOST_STS);
+
+	return sizeof(u32);
+}
+
+static ssize_t aspeed_ast2700_queue_tx(struct file *filp, struct kobject *kobj,
+				       struct bin_attribute *attr, char *buf, loff_t off,
+				       size_t count)
+{
+	struct aspeed_queue_message *queue = attr->private;
+	struct aspeed_bmc_device *bmc_device = queue->bmc_device;
+	int index = queue->index;
+	u32 tx_buff;
 	int ret;
 
 	if (count != sizeof(u32))
 		return -EINVAL;
 
-	ret = wait_event_interruptible(bmc_device->tx_wait0,
+	ret = wait_event_interruptible(queue->tx_wait,
 				       !(readl(bmc_device->reg_base + ASPEED_BMC_BMC2HOST_STS) &
-				       BMC2HOST_Q2_FULL));
+				       ((index == QUEUE1) ? BMC2HOST_Q1_FULL : BMC2HOST_Q2_FULL)));
 	if (ret)
 		return -EINTR;
 
-//	if (copy_from_user((void *)&tx_buff, buf, sizeof(u32)))
-//		return -EFAULT;
 	memcpy(&tx_buff, buf, 4);
-	writel(tx_buff, bmc_device->reg_base + ASPEED_BMC_BMC2HOST_Q2);
-#ifdef CONFIG_MACH_ASPEED_G7
+	writel(tx_buff, bmc_device->reg_base + ((index == QUEUE1) ? ASPEED_BMC_BMC2HOST_Q1 :
+								    ASPEED_BMC_BMC2HOST_Q2));
+
 	writel(BMC2HOST_INT_STS_DOORBELL | BMC2HOST_ENABLE_INTB,
 	       bmc_device->reg_base + ASPEED_BMC_BMC2HOST_STS);
-#else
-	/* trigger to host
-	 * Only After AST2600A3 support DoorBell MSI
-	 */
-	regmap_read(bmc_device->scu, ASPEED_SCU04, &scu_id);
-	if (scu_id == AST2600A3_SCU04) {
-		writel(BMC2HOST_INT_STS_DOORBELL | BMC2HOST_ENABLE_INTB,
-		       bmc_device->reg_base + ASPEED_BMC_BMC2HOST_STS);
-	} else {
-		//A0 : BIT(12) A1 : BIT(15)
-		regmap_update_bits(bmc_device->scu, 0x560, BIT(15), BIT(15));
-		regmap_update_bits(bmc_device->scu, 0x560, BIT(15), 0);
-	}
-#endif
+
 	return sizeof(u32);
 }
 
-#ifndef CONFIG_MACH_ASPEED_G7
+/* AST2600 */
 static irqreturn_t aspeed_bmc_dev_pcie_isr(int irq, void *dev_id)
 {
 	struct aspeed_bmc_device *bmc_device = dev_id;
@@ -325,12 +306,10 @@ static irqreturn_t aspeed_bmc_dev_pcie_isr(int irq, void *dev_id)
 
 	return IRQ_HANDLED;
 }
-#endif
 
 static irqreturn_t aspeed_bmc_dev_isr(int irq, void *dev_id)
 {
 	struct aspeed_bmc_device *bmc_device = dev_id;
-
 	u32 host2bmc_q_sts = readl(bmc_device->reg_base + ASPEED_BMC_HOST2BMC_STS);
 
 	if (host2bmc_q_sts & HOST2BMC_INT_STS_DOORBELL)
@@ -346,30 +325,114 @@ static irqreturn_t aspeed_bmc_dev_isr(int irq, void *dev_id)
 		dev_info(bmc_device->dev, "Q2 Full\n");
 
 	if (!(readl(bmc_device->reg_base + ASPEED_BMC_BMC2HOST_STS) & BMC2HOST_Q1_FULL))
-		wake_up_interruptible(&bmc_device->tx_wait0);
+		wake_up_interruptible(&bmc_device->queue[QUEUE1].tx_wait);
 
 	if (!(readl(bmc_device->reg_base + ASPEED_BMC_HOST2BMC_STS) & HOST2BMC_Q1_EMPTY))
-		wake_up_interruptible(&bmc_device->rx_wait0);
+		wake_up_interruptible(&bmc_device->queue[QUEUE1].rx_wait);
 
 	if (!(readl(bmc_device->reg_base + ASPEED_BMC_BMC2HOST_STS) & BMC2HOST_Q2_FULL))
-		wake_up_interruptible(&bmc_device->tx_wait1);
+		wake_up_interruptible(&bmc_device->queue[QUEUE2].tx_wait);
 
 	if (!(readl(bmc_device->reg_base + ASPEED_BMC_HOST2BMC_STS) & HOST2BMC_Q2_EMPTY))
-		wake_up_interruptible(&bmc_device->rx_wait1);
+		wake_up_interruptible(&bmc_device->queue[QUEUE2].rx_wait);
 
 	return IRQ_HANDLED;
 }
 
-static void aspeed_bmc_device_init(struct aspeed_bmc_device *bmc_device)
+static int aspeed_ast2600_init(struct platform_device *pdev)
 {
+	struct aspeed_bmc_device *bmc_device = platform_get_drvdata(pdev);
+	struct device *dev = &pdev->dev;
 	u32 pcie_config_ctl = SCU_PCIE_CONF_BMC_DEV_EN_IRQ |
 			      SCU_PCIE_CONF_BMC_DEV_EN_MMIO | SCU_PCIE_CONF_BMC_DEV_EN;
-#ifndef CONFIG_MACH_ASPEED_G7
 	u32 scu_id;
+	int ret;
+
+	bmc_device->scu = syscon_regmap_lookup_by_phandle(dev->of_node, "aspeed,scu");
+	if (IS_ERR(bmc_device->scu)) {
+		dev_err(&pdev->dev, "failed to find SCU regmap\n");
+		return PTR_ERR(bmc_device->scu);
+	}
+
+	if (bmc_device->pcie2lpc)
+		pcie_config_ctl |= SCU_PCIE_CONF_BMC_DEV_EN_E2L |
+				   SCU_PCIE_CONF_BMC_DEV_EN_LPC_DECODE;
+
+	regmap_update_bits(bmc_device->scu, ASPEED_SCU_PCIE_CONF_CTRL,
+			   pcie_config_ctl, pcie_config_ctl);
+
+	/* update class code to others as it is a MFD device */
+	regmap_write(bmc_device->scu, ASPEED_SCU_BMC_DEV_CLASS, 0xff000000);
+
+#ifdef SCU_TRIGGER_MSI
+	//SCUC24[17]: Enable PCI device 1 INTx/MSI from SCU560[15]. Will be added in next version
+	regmap_update_bits(bmc_device->scu, ASPEED_SCUC20, BIT(11) | BIT(14), BIT(11) | BIT(14));
+
+	regmap_read(bmc_device->scu, ASPEED_SCU04, &scu_id);
+	if (scu_id == AST2600A3_SCU04)
+		regmap_update_bits(bmc_device->scu, ASPEED_SCUC24,
+				   PCIDEV1_INTX_MSI_HOST2BMC_EN | MSI_ROUTING_MASK,
+				   PCIDEV1_INTX_MSI_HOST2BMC_EN | MSI_ROUTING_PCIe2LPC_PCIDEV1);
+	else
+		regmap_update_bits(bmc_device->scu, ASPEED_SCUC24,
+				   BIT(17) | BIT(14) | BIT(11), BIT(17) | BIT(14) | BIT(11));
+#else
+	//SCUC24[18]: Enable PCI device 1 INTx/MSI from Host-to-BMC controller.
+	regmap_update_bits(bmc_device->scu, 0xc24, BIT(18) | BIT(14), BIT(18) | BIT(14));
 #endif
 
-#ifdef CONFIG_MACH_ASPEED_G7
+	writel((~(BMC_MEM_BAR_SIZE - 1) & 0xFFFFFFFF) | HOST2BMC_MEM_BAR_ENABLE,
+	       bmc_device->reg_base + ASPEED_BMC_MEM_BAR);
+	writel(bmc_device->bmc_mem_phy, bmc_device->reg_base + ASPEED_BMC_MEM_BAR_REMAP);
+
+	//Setting BMC to Host Q register
+	writel(BMC2HOST_Q2_FULL_UNMASK | BMC2HOST_Q1_FULL_UNMASK | BMC2HOST_ENABLE_INTB,
+	       bmc_device->reg_base + ASPEED_BMC_BMC2HOST_STS);
+	writel(HOST2BMC_Q2_FULL_UNMASK |  HOST2BMC_Q1_FULL_UNMASK | HOST2BMC_ENABLE_INTB,
+	       bmc_device->reg_base + ASPEED_BMC_HOST2BMC_STS);
+
+	bmc_device->pcie_irq =  platform_get_irq(pdev, 1);
+	if (bmc_device->pcie_irq < 0) {
+		dev_warn(&pdev->dev,
+			 "platform get of pcie irq[=%d] failed!\n", bmc_device->pcie_irq);
+	} else {
+		ret = devm_request_irq(&pdev->dev, bmc_device->pcie_irq,
+				       aspeed_bmc_dev_pcie_isr, IRQF_SHARED,
+				       dev_name(&pdev->dev), bmc_device);
+		if (ret < 0) {
+			dev_warn(dev, "Failed to request PCI-E IRQ %d.\n", ret);
+			bmc_device->pcie_irq = -1;
+		}
+	}
+
+	return 0;
+}
+
+static int aspeed_ast2700_init(struct platform_device *pdev)
+{
+	struct aspeed_bmc_device *bmc_device = platform_get_drvdata(pdev);
+	struct device *dev = &pdev->dev;
+	u32 pcie_config_ctl = SCU_PCIE_CONF_BMC_DEV_EN_IRQ |
+			      SCU_PCIE_CONF_BMC_DEV_EN_MMIO | SCU_PCIE_CONF_BMC_DEV_EN;
 	int i;
+
+	bmc_device->config = syscon_regmap_lookup_by_phandle(dev->of_node, "aspeed,config");
+	if (IS_ERR(bmc_device->config)) {
+		dev_err(&pdev->dev, "failed to find config regmap\n");
+		return PTR_ERR(bmc_device->config);
+	}
+
+	bmc_device->device = syscon_regmap_lookup_by_phandle(dev->of_node, "aspeed,device");
+	if (IS_ERR(bmc_device->device)) {
+		dev_err(&pdev->dev, "failed to find device regmap\n");
+		return PTR_ERR(bmc_device->device);
+	}
+
+	bmc_device->e2m = syscon_regmap_lookup_by_phandle(dev->of_node, "aspeed,e2m");
+	if (IS_ERR(bmc_device->e2m)) {
+		dev_err(&pdev->dev, "failed to find e2m regmap\n");
+		return PTR_ERR(bmc_device->e2m);
+	}
 
 	if (bmc_device->pcie2lpc)
 		pcie_config_ctl |= SCU_PCIE_CONF_BMC_DEV_EN_E2L |
@@ -404,7 +467,7 @@ static void aspeed_bmc_device_init(struct aspeed_bmc_device *bmc_device)
 	 * BAR assign in scu
 	 * ((bar_mem / 4k) << 8) | per_size
 	 */
-	regmap_write(bmc_device->device, 0x1c, ((bmc_device->bmc_mem_phy & ~BIT(34)) >> 4) | i);
+	regmap_write(bmc_device->device, 0x1c, ((bmc_device->bmc_mem_phy & ~BIT_ULL(34)) >> 4) | i);
 
 	/*
 	 * BAR assign in e2m
@@ -416,52 +479,76 @@ static void aspeed_bmc_device_init(struct aspeed_bmc_device *bmc_device)
 	 * 128:host2bmc-1 for pcie1
 	 */
 	if (bmc_device->id)
-		regmap_write(bmc_device->e2m, 0x128, ((bmc_device->bmc_mem_phy & ~BIT(34)) >> 4) | i);
+		regmap_write(bmc_device->e2m, 0x128, ((bmc_device->bmc_mem_phy & ~BIT_ULL(34)) >> 4) | i);
 	else
-		regmap_write(bmc_device->e2m, 0x108, ((bmc_device->bmc_mem_phy & ~BIT(34)) >> 4) | i);
-#else
-	if (bmc_device->pcie2lpc)
-		pcie_config_ctl |= SCU_PCIE_CONF_BMC_DEV_EN_E2L |
-				   SCU_PCIE_CONF_BMC_DEV_EN_LPC_DECODE;
-
-	regmap_update_bits(bmc_device->scu, ASPEED_SCU_PCIE_CONF_CTRL,
-			   pcie_config_ctl, pcie_config_ctl);
-
-	/* update class code to others as it is a MFD device */
-	regmap_write(bmc_device->scu, ASPEED_SCU_BMC_DEV_CLASS, 0xff000000);
-
-#ifdef SCU_TRIGGER_MSI
-	//SCUC24[17]: Enable PCI device 1 INTx/MSI from SCU560[15]. Will be added in next version
-	regmap_update_bits(bmc_device->scu, ASPEED_SCUC20, BIT(11) | BIT(14), BIT(11) | BIT(14));
-
-	regmap_read(bmc_device->scu, ASPEED_SCU04, &scu_id);
-	if (scu_id == AST2600A3_SCU04)
-		regmap_update_bits(bmc_device->scu, ASPEED_SCUC24,
-				   PCIDEV1_INTX_MSI_HOST2BMC_EN | MSI_ROUTING_MASK,
-				   PCIDEV1_INTX_MSI_HOST2BMC_EN | MSI_ROUTING_PCIe2LPC_PCIDEV1);
-	else
-		regmap_update_bits(bmc_device->scu, ASPEED_SCUC24,
-				   BIT(17) | BIT(14) | BIT(11), BIT(17) | BIT(14) | BIT(11));
-#else
-	//SCUC24[18]: Enable PCI device 1 INTx/MSI from Host-to-BMC controller.
-	regmap_update_bits(bmc_device->scu, 0xc24, BIT(18) | BIT(14), BIT(18) | BIT(14));
-#endif
-
-	writel(~(BMC_MEM_BAR_SIZE - 1) | HOST2BMC_MEM_BAR_ENABLE,
-	       bmc_device->reg_base + ASPEED_BMC_MEM_BAR);
-	writel(bmc_device->bmc_mem_phy, bmc_device->reg_base + ASPEED_BMC_MEM_BAR_REMAP);
-#endif
+		regmap_write(bmc_device->e2m, 0x108, ((bmc_device->bmc_mem_phy & ~BIT_ULL(34)) >> 4) | i);
 
 	//Setting BMC to Host Q register
 	writel(BMC2HOST_Q2_FULL_UNMASK | BMC2HOST_Q1_FULL_UNMASK | BMC2HOST_ENABLE_INTB,
 	       bmc_device->reg_base + ASPEED_BMC_BMC2HOST_STS);
 	writel(HOST2BMC_Q2_FULL_UNMASK | HOST2BMC_Q1_FULL_UNMASK | HOST2BMC_ENABLE_INTB,
 	       bmc_device->reg_base + ASPEED_BMC_HOST2BMC_STS);
+
+	return 0;
 }
 
+static int aspeed_bmc_device_setup_queue(struct platform_device *pdev)
+{
+	struct aspeed_bmc_device *bmc_device = platform_get_drvdata(pdev);
+	struct device *dev = &pdev->dev;
+	int ret, i;
+
+	for (i = 0; i < ASPEED_QUEUE_NUM; i++) {
+		struct aspeed_queue_message *queue = &bmc_device->queue[i];
+
+		init_waitqueue_head(&queue->tx_wait);
+		init_waitqueue_head(&queue->rx_wait);
+
+		sysfs_bin_attr_init(&queue->bin);
+
+		/* Queue name index starts from 1 */
+		queue->bin.attr.name =
+			devm_kasprintf(dev, GFP_KERNEL, "bmc-dev-queue%d", (i + 1));
+		queue->bin.attr.mode = 0600;
+		queue->bin.read = bmc_device->platform->queue_rx;
+		queue->bin.write = bmc_device->platform->queue_tx;
+		queue->bin.size = 4;
+		queue->bin.private = queue;
+
+		ret = sysfs_create_bin_file(&pdev->dev.kobj, &queue->bin);
+		if (ret) {
+			dev_err(dev, "error for bin%d file\n", i);
+			return ret;
+		}
+
+		queue->kn = kernfs_find_and_get(dev->kobj.sd, queue->bin.attr.name);
+		if (!queue->kn) {
+			sysfs_remove_bin_file(&dev->kobj, &queue->bin);
+			return ret;
+		}
+
+		queue->index = i;
+		queue->bmc_device = bmc_device;
+	}
+
+	return 0;
+}
+
+static struct aspeed_platform ast2600_plaform = {
+	.init = aspeed_ast2600_init,
+	.queue_rx = aspeed_ast2600_queue_rx,
+	.queue_tx = aspeed_ast2600_queue_tx
+};
+
+static struct aspeed_platform ast2700_plaform = {
+	.init = aspeed_ast2700_init,
+	.queue_rx = aspeed_ast2700_queue_rx,
+	.queue_tx = aspeed_ast2700_queue_tx
+};
+
 static const struct of_device_id aspeed_bmc_device_of_matches[] = {
-	{ .compatible = "aspeed,ast2600-bmc-device", },
-	{ .compatible = "aspeed,ast2700-bmc-device", },
+	{ .compatible = "aspeed,ast2600-bmc-device", .data = &ast2600_plaform },
+	{ .compatible = "aspeed,ast2700-bmc-device", .data = &ast2700_plaform },
 	{},
 };
 MODULE_DEVICE_TABLE(of, aspeed_bmc_device_of_matches);
@@ -470,16 +557,23 @@ static int aspeed_bmc_device_probe(struct platform_device *pdev)
 {
 	struct aspeed_bmc_device *bmc_device;
 	struct device *dev = &pdev->dev;
+	const struct of_device_id *match;
+	struct device_node *np;
 	int ret = 0;
+
+	np = of_find_matching_node_and_match(NULL, aspeed_bmc_device_of_matches, &match);
+	if (!np) {
+		pr_err("Failed to find bmc device node\n");
+		return -ENODEV;
+	}
 
 	bmc_device = devm_kzalloc(&pdev->dev, sizeof(struct aspeed_bmc_device), GFP_KERNEL);
 	if (!bmc_device)
 		return -ENOMEM;
+	dev_set_drvdata(dev, bmc_device);
 
-	init_waitqueue_head(&bmc_device->tx_wait0);
-	init_waitqueue_head(&bmc_device->tx_wait1);
-	init_waitqueue_head(&bmc_device->rx_wait0);
-	init_waitqueue_head(&bmc_device->rx_wait1);
+	bmc_device->platform = (struct aspeed_platform *)match->data;
+	of_node_put(np);
 
 	bmc_device->id = ida_simple_get(&bmc_device_ida, 0, 0, GFP_KERNEL);
 	if (bmc_device->id < 0)
@@ -489,123 +583,49 @@ static int aspeed_bmc_device_probe(struct platform_device *pdev)
 	bmc_device->reg_base = devm_platform_ioremap_resource(pdev, 0);
 	if (IS_ERR(bmc_device->reg_base))
 		goto out_region;
-#ifdef CONFIG_MACH_ASPEED_G7
-	bmc_device->config = syscon_regmap_lookup_by_phandle(dev->of_node, "aspeed,config");
-	if (IS_ERR(bmc_device->config)) {
-		dev_err(&pdev->dev, "failed to find config regmap\n");
-		goto out_region;
-	}
-
-	bmc_device->device = syscon_regmap_lookup_by_phandle(dev->of_node, "aspeed,device");
-	if (IS_ERR(bmc_device->config)) {
-		dev_err(&pdev->dev, "failed to find device regmap\n");
-		goto out_region;
-	}
-
-	bmc_device->e2m = syscon_regmap_lookup_by_phandle(dev->of_node, "aspeed,e2m");
-	if (IS_ERR(bmc_device->e2m)) {
-		dev_err(&pdev->dev, "failed to find e2m regmap\n");
-		goto out_region;
-	}
-#else
-	bmc_device->scu = syscon_regmap_lookup_by_phandle(dev->of_node, "aspeed,scu");
-	if (IS_ERR(bmc_device->scu)) {
-		dev_err(&pdev->dev, "failed to find SCU regmap\n");
-		goto out_region;
-	}
-#endif
 
 	dma_set_mask_and_coherent(dev, DMA_BIT_MASK(64));
 
-	if (of_property_read_bool(dev->of_node, "pcie2lpc"))
-		bmc_device->pcie2lpc = 1;
-
 	if (of_reserved_mem_device_init(dev))
 		dev_err(dev, "can't get reserved memory\n");
-
 	bmc_device->bmc_mem_virt = dma_alloc_coherent(&pdev->dev, BMC_MEM_BAR_SIZE,
 						      &bmc_device->bmc_mem_phy, GFP_KERNEL);
 	memset(bmc_device->bmc_mem_virt, 0, BMC_MEM_BAR_SIZE);
 
-	sysfs_bin_attr_init(&bmc_device->bin0);
-	sysfs_bin_attr_init(&bmc_device->bin1);
-
-	bmc_device->bin0.attr.name = "bmc-dev-queue1";
-	bmc_device->bin0.attr.mode = 0600;
-	bmc_device->bin0.read = aspeed_host2bmc_queue1_rx;
-	bmc_device->bin0.write = aspeed_bmc2host_queue1_tx;
-	bmc_device->bin0.size = 4;
-
-	ret = sysfs_create_bin_file(&pdev->dev.kobj, &bmc_device->bin0);
-	if (ret) {
-		dev_err(dev, "error for bin file\n");
-		goto out_dma;
-	}
-
-	bmc_device->kn0 = kernfs_find_and_get(dev->kobj.sd, bmc_device->bin0.attr.name);
-	if (!bmc_device->kn0) {
-		sysfs_remove_bin_file(&dev->kobj, &bmc_device->bin0);
-		goto out_dma;
-	}
-
-	bmc_device->bin1.attr.name = "bmc-dev-queue2";
-	bmc_device->bin1.attr.mode = 0600;
-	bmc_device->bin1.read = aspeed_host2bmc_queue2_rx;
-	bmc_device->bin1.write = aspeed_bmc2host_queue2_tx;
-	bmc_device->bin1.size = 4;
-
-	ret = sysfs_create_bin_file(&pdev->dev.kobj, &bmc_device->bin1);
-	if (ret) {
-		dev_err(dev, "error for bin file ");
-		goto out_dma;
-	}
-
-	bmc_device->kn1 = kernfs_find_and_get(dev->kobj.sd, bmc_device->bin1.attr.name);
-	if (!bmc_device->kn1) {
-		sysfs_remove_bin_file(&dev->kobj, &bmc_device->bin1);
-		goto out_dma;
-	}
-
-	dev_set_drvdata(dev, bmc_device);
-
-	aspeed_bmc_device_init(bmc_device);
-
-	bmc_device->irq =  platform_get_irq(pdev, 0);
+	bmc_device->irq = platform_get_irq(pdev, 0);
 	if (bmc_device->irq < 0) {
 		dev_err(&pdev->dev, "platform get of irq[=%d] failed!\n", bmc_device->irq);
 		goto out_unmap;
 	}
-
-	ret = devm_request_irq(&pdev->dev, bmc_device->irq, aspeed_bmc_dev_isr,
-			       0, dev_name(&pdev->dev), bmc_device);
+	ret = devm_request_irq(&pdev->dev, bmc_device->irq, aspeed_bmc_dev_isr, 0,
+			       dev_name(&pdev->dev), bmc_device);
 	if (ret) {
 		dev_err(dev, "aspeed bmc device Unable to get IRQ");
 		goto out_unmap;
 	}
 
-#ifndef CONFIG_MACH_ASPEED_G7
-	bmc_device->pcie_irq =  platform_get_irq(pdev, 1);
-	if (bmc_device->pcie_irq < 0) {
-		dev_warn(&pdev->dev,
-			 "platform get of pcie irq[=%d] failed!\n", bmc_device->pcie_irq);
-	} else {
-		ret = devm_request_irq(&pdev->dev, bmc_device->pcie_irq,
-				       aspeed_bmc_dev_pcie_isr, IRQF_SHARED,
-				       dev_name(&pdev->dev), bmc_device);
-		if (ret < 0) {
-			dev_warn(dev, "Failed to request PCI-E IRQ %d.\n", ret);
-			bmc_device->pcie_irq = -1;
-		}
+	ret = aspeed_bmc_device_setup_queue(pdev);
+	if (ret) {
+		dev_err(dev, "Cannot setup queue message");
+		goto out_irq;
 	}
-#endif
 
 	bmc_device->miscdev.minor = MISC_DYNAMIC_MINOR;
-	bmc_device->miscdev.name = kasprintf(GFP_KERNEL, "bmc-device%d", bmc_device->id);
+	bmc_device->miscdev.name = devm_kasprintf(dev, GFP_KERNEL, "bmc-device%d", bmc_device->id);
 	bmc_device->miscdev.fops = &aspeed_bmc_device_fops;
 	bmc_device->miscdev.parent = dev;
 	ret = misc_register(&bmc_device->miscdev);
 	if (ret) {
 		dev_err(dev, "Unable to register device\n");
+		goto out_irq;
+	}
+
+	if (of_property_read_bool(dev->of_node, "pcie2lpc"))
+		bmc_device->pcie2lpc = 1;
+
+	ret = bmc_device->platform->init(pdev);
+	if (ret) {
+		dev_err(dev, "Initialize bmc device failed\n");
 		goto out_irq;
 	}
 
@@ -619,7 +639,6 @@ out_irq:
 out_unmap:
 	iounmap(bmc_device->reg_base);
 
-out_dma:
 	dma_free_coherent(&pdev->dev, BMC_MEM_BAR_SIZE,
 			  bmc_device->bmc_mem_virt, bmc_device->bmc_mem_phy);
 
@@ -632,9 +651,11 @@ out_region:
 static int  aspeed_bmc_device_remove(struct platform_device *pdev)
 {
 	struct aspeed_bmc_device *bmc_device = platform_get_drvdata(pdev);
+	int i;
 
+	for (i = 0; i < ASPEED_QUEUE_NUM; i++)
+		sysfs_remove_bin_file(&pdev->dev.kobj, &bmc_device->queue[i].bin);
 	misc_deregister(&bmc_device->miscdev);
-
 	devm_free_irq(&pdev->dev, bmc_device->irq, bmc_device);
 
 	iounmap(bmc_device->reg_base);
