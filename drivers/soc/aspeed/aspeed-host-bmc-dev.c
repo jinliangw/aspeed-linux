@@ -357,6 +357,44 @@ static int aspeed_pci_bmc_device_setup_memory_mapping(struct pci_dev *pdev)
 	return 0;
 }
 
+static int aspeed_pci_bmc_device_setup_mbox(struct pci_dev *pdev)
+{
+	struct aspeed_pci_bmc_dev *pci_bmc_dev = pci_get_drvdata(pdev);
+	struct device *dev = &pdev->dev;
+	int ret;
+
+	/* setup mbox */
+	pci_bmc_dev->pcie_sio_decode_addr = pci_bmc_dev->msg_bar_reg + PCIE_DEVICE_SIO_ADDR;
+	writel(0xaa, pci_bmc_dev->pcie_sio_decode_addr);
+	writel(0xa5, pci_bmc_dev->pcie_sio_decode_addr);
+	writel(0xa5, pci_bmc_dev->pcie_sio_decode_addr);
+	writel(0x07, pci_bmc_dev->pcie_sio_decode_addr);
+	writel(0x0e, pci_bmc_dev->pcie_sio_decode_addr + 0x04);
+	/* disable */
+	writel(0x30, pci_bmc_dev->pcie_sio_decode_addr);
+	writel(0x00, pci_bmc_dev->pcie_sio_decode_addr + 0x04);
+	/* set decode address 0x100 */
+	writel(0x60, pci_bmc_dev->pcie_sio_decode_addr);
+	writel(0x01, pci_bmc_dev->pcie_sio_decode_addr + 0x04);
+	writel(0x61, pci_bmc_dev->pcie_sio_decode_addr);
+	writel(0x00, pci_bmc_dev->pcie_sio_decode_addr + 0x04);
+	/* enable */
+	writel(0x30, pci_bmc_dev->pcie_sio_decode_addr);
+	writel(0x01, pci_bmc_dev->pcie_sio_decode_addr + 0x04);
+	pci_bmc_dev->sio_mbox_reg = pci_bmc_dev->msg_bar_reg + 0x400;
+
+	ret = request_irq(pci_bmc_dev->irq_table[MBX_MSI], aspeed_pci_host_mbox_interrupt,
+			  IRQF_SHARED,
+			  devm_kasprintf(dev, GFP_KERNEL, "aspeed-sio-mbox%d", pci_bmc_dev->id),
+			  pci_bmc_dev);
+	if (ret) {
+		pr_err("host bmc device Unable to get IRQ %d\n", ret);
+		return ret;
+	}
+
+	return 0;
+}
+
 static void aspeed_pci_host_bmc_device_release_queue(struct pci_dev *pdev)
 {
 	struct aspeed_pci_bmc_dev *pci_bmc_dev = pci_get_drvdata(pdev);
@@ -388,7 +426,6 @@ static void aspeed_pci_host_bmc_device_release_memory_mapping(struct pci_dev *pd
 static int aspeed_pci_host_bmc_device_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
 {
 	struct aspeed_pci_bmc_dev *pci_bmc_dev;
-	struct device *dev = &pdev->dev;
 	int rc = 0;
 
 	pr_info("ASPEED BMC PCI ID %04x:%04x, IRQ=%u\n", pdev->vendor, pdev->device, pdev->irq);
@@ -467,32 +504,11 @@ static int aspeed_pci_host_bmc_device_probe(struct pci_dev *pdev, const struct p
 		goto out_unreg;
 	}
 
-	/* setup mbox */
-	pci_bmc_dev->pcie_sio_decode_addr = pci_bmc_dev->msg_bar_reg + PCIE_DEVICE_SIO_ADDR;
-	writel(0xaa, pci_bmc_dev->pcie_sio_decode_addr);
-	writel(0xa5, pci_bmc_dev->pcie_sio_decode_addr);
-	writel(0xa5, pci_bmc_dev->pcie_sio_decode_addr);
-	writel(0x07, pci_bmc_dev->pcie_sio_decode_addr);
-	writel(0x0e, pci_bmc_dev->pcie_sio_decode_addr + 0x04);
-	/* disable */
-	writel(0x30, pci_bmc_dev->pcie_sio_decode_addr);
-	writel(0x00, pci_bmc_dev->pcie_sio_decode_addr + 0x04);
-	/* set decode address 0x100 */
-	writel(0x60, pci_bmc_dev->pcie_sio_decode_addr);
-	writel(0x01, pci_bmc_dev->pcie_sio_decode_addr + 0x04);
-	writel(0x61, pci_bmc_dev->pcie_sio_decode_addr);
-	writel(0x00, pci_bmc_dev->pcie_sio_decode_addr + 0x04);
-	/* enable */
-	writel(0x30, pci_bmc_dev->pcie_sio_decode_addr);
-	writel(0x01, pci_bmc_dev->pcie_sio_decode_addr + 0x04);
-	pci_bmc_dev->sio_mbox_reg = pci_bmc_dev->msg_bar_reg + 0x400;
-
-	rc = request_irq(pci_bmc_dev->irq_table[MBX_MSI], aspeed_pci_host_mbox_interrupt,
-			 IRQF_SHARED,
-			 devm_kasprintf(dev, GFP_KERNEL, "aspeed-sio-mbox%d", pci_bmc_dev->id),
-			 pci_bmc_dev);
-	if (rc)
-		pr_err("host bmc device Unable to get IRQ %d\n", rc);
+	rc = aspeed_pci_bmc_device_setup_mbox(pdev);
+	if (rc) {
+		pr_err("Cannot setup MBOX");
+		goto out_unreg;
+	}
 
 	rc = aspeed_pci_bmc_device_setup_vuart(pdev);
 	if (rc) {
