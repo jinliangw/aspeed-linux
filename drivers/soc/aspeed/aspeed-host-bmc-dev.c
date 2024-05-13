@@ -336,6 +336,27 @@ static int aspeed_pci_bmc_device_setup_vuart(struct pci_dev *pdev)
 	return 0;
 }
 
+static int aspeed_pci_bmc_device_setup_memory_mapping(struct pci_dev *pdev)
+{
+	struct aspeed_pci_bmc_dev *pci_bmc_dev = pci_get_drvdata(pdev);
+	struct device *dev = &pdev->dev;
+	int ret;
+
+	pci_bmc_dev->miscdev.minor = MISC_DYNAMIC_MINOR;
+	pci_bmc_dev->miscdev.name =
+		devm_kasprintf(dev, GFP_KERNEL, "%s%d", DRIVER_NAME, pci_bmc_dev->id);
+	pci_bmc_dev->miscdev.fops = &aspeed_pci_bmc_dev_fops;
+	pci_bmc_dev->miscdev.parent = dev;
+
+	ret = misc_register(&pci_bmc_dev->miscdev);
+	if (ret) {
+		pr_err("host bmc register fail %d\n", ret);
+		return ret;
+	}
+
+	return 0;
+}
+
 static void aspeed_pci_host_bmc_device_release_queue(struct pci_dev *pdev)
 {
 	struct aspeed_pci_bmc_dev *pci_bmc_dev = pci_get_drvdata(pdev);
@@ -354,6 +375,14 @@ static void aspeed_pci_host_bmc_device_release_vuart(struct pci_dev *pdev)
 		if (pci_bmc_dev->uart_line[i] >= 0)
 			serial8250_unregister_port(pci_bmc_dev->uart_line[i]);
 	}
+}
+
+static void aspeed_pci_host_bmc_device_release_memory_mapping(struct pci_dev *pdev)
+{
+	struct aspeed_pci_bmc_dev *pci_bmc_dev = pci_get_drvdata(pdev);
+
+	if (!list_empty(&pci_bmc_dev->miscdev.list))
+		misc_deregister(&pci_bmc_dev->miscdev);
 }
 
 static int aspeed_pci_host_bmc_device_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
@@ -425,15 +454,9 @@ static int aspeed_pci_host_bmc_device_probe(struct pci_dev *pdev, const struct p
 		goto out_free1;
 	}
 
-	pci_bmc_dev->miscdev.minor = MISC_DYNAMIC_MINOR;
-	pci_bmc_dev->miscdev.name =
-		devm_kasprintf(dev, GFP_KERNEL, "%s%d", DRIVER_NAME, pci_bmc_dev->id);
-	pci_bmc_dev->miscdev.fops = &aspeed_pci_bmc_dev_fops;
-	pci_bmc_dev->miscdev.parent = dev;
-
-	rc = misc_register(&pci_bmc_dev->miscdev);
+	rc = aspeed_pci_bmc_device_setup_memory_mapping(pdev);
 	if (rc) {
-		pr_err("host bmc register fail %d\n", rc);
+		pr_err("Cannot setup memory mapping");
 		goto out_free1;
 	}
 
@@ -480,7 +503,7 @@ static int aspeed_pci_host_bmc_device_probe(struct pci_dev *pdev, const struct p
 	return 0;
 
 out_unreg:
-	misc_deregister(&pci_bmc_dev->miscdev);
+	aspeed_pci_host_bmc_device_release_memory_mapping(pdev);
 out_free1:
 	pci_release_region(pdev, 1);
 out_free0:
@@ -498,11 +521,12 @@ static void aspeed_pci_host_bmc_device_remove(struct pci_dev *pdev)
 	struct aspeed_pci_bmc_dev *pci_bmc_dev = pci_get_drvdata(pdev);
 
 	aspeed_pci_host_bmc_device_release_queue(pdev);
+	aspeed_pci_host_bmc_device_release_memory_mapping(pdev);
 	aspeed_pci_host_bmc_device_release_vuart(pdev);
 
 	free_irq(pci_bmc_dev->irq_table[BMC_MSI], pci_bmc_dev);
 	free_irq(pci_bmc_dev->irq_table[MBX_MSI], pci_bmc_dev);
-	misc_deregister(&pci_bmc_dev->miscdev);
+
 	pci_release_regions(pdev);
 	kfree(pci_bmc_dev);
 	pci_disable_device(pdev);
