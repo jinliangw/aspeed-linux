@@ -439,12 +439,12 @@ static int aspeed_pci_host_bmc_device_probe(struct pci_dev *pdev, const struct p
 
 	pci_bmc_dev->id = ida_simple_get(&bmc_device_ida, 0, 0, GFP_KERNEL);
 	if (pci_bmc_dev->id < 0)
-		goto out_err;
+		goto out_free;
 
 	rc = pci_enable_device(pdev);
 	if (rc != 0) {
 		dev_err(&pdev->dev, "pci_enable_device() returned error %d\n", rc);
-		goto out_err;
+		goto out_free;
 	}
 
 	/* set PCI host mastering  */
@@ -466,7 +466,7 @@ static int aspeed_pci_host_bmc_device_probe(struct pci_dev *pdev, const struct p
 	pci_bmc_dev->mem_bar_reg = pci_ioremap_bar(pdev, 0);
 	if (!pci_bmc_dev->mem_bar_reg) {
 		rc = -ENOMEM;
-		goto out_free0;
+		goto out_free;
 	}
 
 	//Get MSG BAR info
@@ -479,7 +479,7 @@ static int aspeed_pci_host_bmc_device_probe(struct pci_dev *pdev, const struct p
 	pci_bmc_dev->msg_bar_reg = pci_ioremap_bar(pdev, 1);
 	if (!pci_bmc_dev->msg_bar_reg) {
 		rc = -ENOMEM;
-		goto out_free1;
+		goto out_free0;
 	}
 
 	/* ERRTA40: dummy read */
@@ -494,37 +494,44 @@ static int aspeed_pci_host_bmc_device_probe(struct pci_dev *pdev, const struct p
 	rc = aspeed_pci_bmc_device_setup_memory_mapping(pdev);
 	if (rc) {
 		pr_err("Cannot setup memory mapping");
-		goto out_free1;
+		goto out_free_queue;
+	}
+
+	rc = aspeed_pci_bmc_device_setup_mbox(pdev);
+	if (rc) {
+		pr_err("Cannot setup MBOX");
+		goto out_free_mmapping;
+	}
+
+	rc = aspeed_pci_bmc_device_setup_vuart(pdev);
+	if (rc) {
+		pr_err("Cannot setup VUART");
+		goto out_free_mbox;
 	}
 
 	rc = request_irq(pci_bmc_dev->irq_table[BMC_MSI], aspeed_pci_host_bmc_device_interrupt,
 			 IRQF_SHARED, pci_bmc_dev->miscdev.name, pci_bmc_dev);
 	if (rc) {
 		pr_err("host bmc device Unable to get IRQ %d\n", rc);
-		goto out_unreg;
-	}
-
-	rc = aspeed_pci_bmc_device_setup_mbox(pdev);
-	if (rc) {
-		pr_err("Cannot setup MBOX");
-		goto out_unreg;
-	}
-
-	rc = aspeed_pci_bmc_device_setup_vuart(pdev);
-	if (rc) {
-		pr_err("Cannot setup VUART");
-		goto out_unreg;
+		goto out_free_uart;
 	}
 
 	return 0;
 
-out_unreg:
+out_free_uart:
+	aspeed_pci_host_bmc_device_release_vuart(pdev);
+out_free_mbox:
+	free_irq(pci_bmc_dev->irq_table[MBX_MSI], pci_bmc_dev);
+out_free_mmapping:
 	aspeed_pci_host_bmc_device_release_memory_mapping(pdev);
+out_free_queue:
+	aspeed_pci_host_bmc_device_release_queue(pdev);
 out_free1:
-	pci_release_region(pdev, 1);
+	iounmap(pci_bmc_dev->msg_bar_reg);
 out_free0:
-	pci_release_region(pdev, 0);
-
+	iounmap(pci_bmc_dev->mem_bar_reg);
+out_free:
+	pci_release_regions(pdev);
 	kfree(pci_bmc_dev);
 out_err:
 	pci_disable_device(pdev);
