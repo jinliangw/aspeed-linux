@@ -112,8 +112,6 @@ struct aspeed_pci_bmc_dev {
 
 #define DRIVER_NAME "aspeed-host-bmc-dev"
 
-static u16 vuart_ioport[VUART_MAX_PARMS];
-
 static struct aspeed_pci_bmc_dev *file_aspeed_bmc_device(struct file *file)
 {
 	return container_of(file->private_data, struct aspeed_pci_bmc_dev,
@@ -305,12 +303,64 @@ static int aspeed_pci_bmc_device_setup_queue(struct pci_dev *pdev)
 	return 0;
 }
 
+static int aspeed_pci_bmc_device_setup_vuart(struct pci_dev *pdev)
+{
+	struct aspeed_pci_bmc_dev *pci_bmc_dev = pci_get_drvdata(pdev);
+	struct device *dev = &pdev->dev;
+	u16 vuart_ioport;
+	int ret, i;
+
+	for (i = 0; i < VUART_MAX_PARMS; i++) {
+		/* Assign the line to non-exist device */
+		pci_bmc_dev->uart_line[i] = -ENOENT;
+		vuart_ioport = 0x3F8 - (i * 0x100);
+		pci_bmc_dev->uart[i].port.flags = UPF_SKIP_TEST | UPF_BOOT_AUTOCONF | UPF_SHARE_IRQ;
+		pci_bmc_dev->uart[i].port.uartclk = 115200 * 16;
+		pci_bmc_dev->uart[i].port.irq = pci_bmc_dev->irq_table[VUART0_MSI + i];
+		pci_bmc_dev->uart[i].port.dev = dev;
+		pci_bmc_dev->uart[i].port.iotype = UPIO_MEM32;
+		pci_bmc_dev->uart[i].port.iobase = 0;
+		pci_bmc_dev->uart[i].port.mapbase =
+			pci_bmc_dev->message_bar_base + (vuart_ioport << 2);
+		pci_bmc_dev->uart[i].port.membase = 0;
+		pci_bmc_dev->uart[i].port.type = PORT_16550A;
+		pci_bmc_dev->uart[i].port.flags |= (UPF_IOREMAP | UPF_FIXED_PORT | UPF_FIXED_TYPE);
+		pci_bmc_dev->uart[i].port.regshift = 2;
+		ret = serial8250_register_8250_port(&pci_bmc_dev->uart[i]);
+		if (ret < 0) {
+			dev_err_probe(dev, ret, "Can't setup PCIe VUART\n");
+			return ret;
+		}
+		pci_bmc_dev->uart_line[i] = ret;
+	}
+	return 0;
+}
+
+static void aspeed_pci_host_bmc_device_release_queue(struct pci_dev *pdev)
+{
+	struct aspeed_pci_bmc_dev *pci_bmc_dev = pci_get_drvdata(pdev);
+	int i;
+
+	for (i = 0; i < ASPEED_QUEUE_NUM; i++)
+		sysfs_remove_bin_file(&pdev->dev.kobj, &pci_bmc_dev->queue[i].bin);
+}
+
+static void aspeed_pci_host_bmc_device_release_vuart(struct pci_dev *pdev)
+{
+	struct aspeed_pci_bmc_dev *pci_bmc_dev = pci_get_drvdata(pdev);
+	int i;
+
+	for (i = 0; i < VUART_MAX_PARMS; i++) {
+		if (pci_bmc_dev->uart_line[i] >= 0)
+			serial8250_unregister_port(pci_bmc_dev->uart_line[i]);
+	}
+}
+
 static int aspeed_pci_host_bmc_device_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
 {
 	struct aspeed_pci_bmc_dev *pci_bmc_dev;
 	struct device *dev = &pdev->dev;
 	int rc = 0;
-	int i = 0;
 
 	pr_info("ASPEED BMC PCI ID %04x:%04x, IRQ=%u\n", pdev->vendor, pdev->device, pdev->irq);
 
@@ -421,25 +471,10 @@ static int aspeed_pci_host_bmc_device_probe(struct pci_dev *pdev, const struct p
 	if (rc)
 		pr_err("host bmc device Unable to get IRQ %d\n", rc);
 
-	for (i = 0; i < VUART_MAX_PARMS; i++) {
-		vuart_ioport[i] = 0x3F8 - (i * 0x100);
-		pci_bmc_dev->uart[i].port.flags = UPF_SKIP_TEST | UPF_BOOT_AUTOCONF | UPF_SHARE_IRQ;
-		pci_bmc_dev->uart[i].port.uartclk = 115200 * 16;
-		pci_bmc_dev->uart[i].port.irq = pci_bmc_dev->irq_table[VUART0_MSI + i];
-		pci_bmc_dev->uart[i].port.dev = &pdev->dev;
-		pci_bmc_dev->uart[i].port.iotype = UPIO_MEM32;
-		pci_bmc_dev->uart[i].port.iobase = 0;
-		pci_bmc_dev->uart[i].port.mapbase =
-					pci_bmc_dev->message_bar_base + (vuart_ioport[i] << 2);
-		pci_bmc_dev->uart[i].port.membase = 0;
-		pci_bmc_dev->uart[i].port.type = PORT_16550A;
-		pci_bmc_dev->uart[i].port.flags |= (UPF_IOREMAP | UPF_FIXED_PORT | UPF_FIXED_TYPE);
-		pci_bmc_dev->uart[i].port.regshift = 2;
-		pci_bmc_dev->uart_line[i] = serial8250_register_8250_port(&pci_bmc_dev->uart[i]);
-		if (pci_bmc_dev->uart_line[i] < 0) {
-			dev_err_probe(dev, pci_bmc_dev->uart_line[i], "Can't setup PCIe VUART\n");
-			goto out_unreg;
-		}
+	rc = aspeed_pci_bmc_device_setup_vuart(pdev);
+	if (rc) {
+		pr_err("Cannot setup VUART");
+		goto out_unreg;
 	}
 
 	return 0;
@@ -458,24 +493,12 @@ out_err:
 	return rc;
 }
 
-static void aspeed_pci_host_bmc_device_release_queue(struct pci_dev *pdev)
-{
-	struct aspeed_pci_bmc_dev *pci_bmc_dev = pci_get_drvdata(pdev);
-	int i;
-
-	for (i = 0; i < ASPEED_QUEUE_NUM; i++)
-		sysfs_remove_bin_file(&pdev->dev.kobj, &pci_bmc_dev->queue[i].bin);
-}
-
 static void aspeed_pci_host_bmc_device_remove(struct pci_dev *pdev)
 {
 	struct aspeed_pci_bmc_dev *pci_bmc_dev = pci_get_drvdata(pdev);
-	int i;
-
-	for (i = 0; i < VUART_MAX_PARMS; i++)
-		serial8250_unregister_port(pci_bmc_dev->uart_line[i]);
 
 	aspeed_pci_host_bmc_device_release_queue(pdev);
+	aspeed_pci_host_bmc_device_release_vuart(pdev);
 
 	free_irq(pci_bmc_dev->irq_table[BMC_MSI], pci_bmc_dev);
 	free_irq(pci_bmc_dev->irq_table[MBX_MSI], pci_bmc_dev);
