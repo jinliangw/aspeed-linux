@@ -482,8 +482,9 @@ static int aspeed_pci_host_bmc_device_probe(struct pci_dev *pdev, const struct p
 		goto out_free0;
 	}
 
-	/* ERRTA40: dummy read */
-	(void)__raw_readl((void __iomem *)pci_bmc_dev->msg_bar_reg);
+	/* AST2600 ERRTA40: dummy read */
+	if (pdev->revision < 0x27)
+		(void)__raw_readl((void __iomem *)pci_bmc_dev->msg_bar_reg);
 
 	rc = aspeed_pci_bmc_device_setup_queue(pdev);
 	if (rc) {
