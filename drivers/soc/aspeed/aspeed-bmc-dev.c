@@ -534,6 +534,25 @@ static int aspeed_bmc_device_setup_queue(struct platform_device *pdev)
 	return 0;
 }
 
+static int aspeed_bmc_device_setup_memory_mapping(struct platform_device *pdev)
+{
+	struct aspeed_bmc_device *bmc_device = platform_get_drvdata(pdev);
+	struct device *dev = &pdev->dev;
+	int ret;
+
+	bmc_device->miscdev.minor = MISC_DYNAMIC_MINOR;
+	bmc_device->miscdev.name = devm_kasprintf(dev, GFP_KERNEL, "bmc-device%d", bmc_device->id);
+	bmc_device->miscdev.fops = &aspeed_bmc_device_fops;
+	bmc_device->miscdev.parent = dev;
+	ret = misc_register(&bmc_device->miscdev);
+	if (ret) {
+		dev_err(dev, "Unable to register device\n");
+		return ret;
+	}
+
+	return 0;
+}
+
 static struct aspeed_platform ast2600_plaform = {
 	.init = aspeed_ast2600_init,
 	.queue_rx = aspeed_ast2600_queue_rx,
@@ -610,13 +629,9 @@ static int aspeed_bmc_device_probe(struct platform_device *pdev)
 		goto out_irq;
 	}
 
-	bmc_device->miscdev.minor = MISC_DYNAMIC_MINOR;
-	bmc_device->miscdev.name = devm_kasprintf(dev, GFP_KERNEL, "bmc-device%d", bmc_device->id);
-	bmc_device->miscdev.fops = &aspeed_bmc_device_fops;
-	bmc_device->miscdev.parent = dev;
-	ret = misc_register(&bmc_device->miscdev);
+	ret = aspeed_bmc_device_setup_memory_mapping(pdev);
 	if (ret) {
-		dev_err(dev, "Unable to register device\n");
+		dev_err(dev, "Cannot setup memory mapping misc");
 		goto out_irq;
 	}
 
