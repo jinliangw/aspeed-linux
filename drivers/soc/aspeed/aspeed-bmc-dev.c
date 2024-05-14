@@ -578,7 +578,7 @@ static int aspeed_bmc_device_probe(struct platform_device *pdev)
 	struct device *dev = &pdev->dev;
 	const struct of_device_id *match;
 	struct device_node *np;
-	int ret = 0;
+	int ret = 0, i;
 
 	np = of_find_matching_node_and_match(NULL, aspeed_bmc_device_of_matches, &match);
 	if (!np) {
@@ -632,7 +632,7 @@ static int aspeed_bmc_device_probe(struct platform_device *pdev)
 	ret = aspeed_bmc_device_setup_memory_mapping(pdev);
 	if (ret) {
 		dev_err(dev, "Cannot setup memory mapping misc");
-		goto out_irq;
+		goto out_free_queue;
 	}
 
 	if (of_property_read_bool(dev->of_node, "pcie2lpc"))
@@ -641,22 +641,24 @@ static int aspeed_bmc_device_probe(struct platform_device *pdev)
 	ret = bmc_device->platform->init(pdev);
 	if (ret) {
 		dev_err(dev, "Initialize bmc device failed\n");
-		goto out_irq;
+		goto out_free_misc;
 	}
 
 	dev_info(dev, "aspeed bmc device: driver successfully loaded.\n");
 
 	return 0;
 
+out_free_misc:
+	misc_deregister(&bmc_device->miscdev);
+out_free_queue:
+	for (i = 0; i < ASPEED_QUEUE_NUM; i++)
+		sysfs_remove_bin_file(&pdev->dev.kobj, &bmc_device->queue[i].bin);
 out_irq:
 	devm_free_irq(&pdev->dev, bmc_device->irq, bmc_device);
-
 out_unmap:
 	iounmap(bmc_device->reg_base);
-
 	dma_free_coherent(&pdev->dev, BMC_MEM_BAR_SIZE,
 			  bmc_device->bmc_mem_virt, bmc_device->bmc_mem_phy);
-
 out_region:
 	devm_kfree(&pdev->dev, bmc_device);
 	dev_warn(dev, "aspeed bmc device: driver init failed (ret=%d)!\n", ret);
