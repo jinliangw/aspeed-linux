@@ -460,7 +460,7 @@
 		};
 
 		bmc_dev0: bmc_dev@12110000 {
-			compatible = "aspeed,ast2600-bmc-device";
+			compatible = "aspeed,ast2700-bmc-device";
 			reg = <0x0 0x12110000 0x0 0xb000>;
 			interrupts = <GIC_SPI 42 IRQ_TYPE_LEVEL_HIGH>;
 			aspeed,config = <&pcie_config0>;
@@ -471,7 +471,7 @@
 		};
 
 		bmc_dev1: bmc_dev@12120000 {
-			compatible = "aspeed,ast2600-bmc-device";
+			compatible = "aspeed,ast2700-bmc-device";
 			reg = <0x0 0x12120000 0x0 0xb000>;
 			interrupts = <GIC_SPI 43 IRQ_TYPE_LEVEL_HIGH>;
 			aspeed,config = <&pcie_config1>;
