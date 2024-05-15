@@ -777,7 +777,7 @@ static int aspeed_video_start_frame(struct aspeed_video *video)
 		aspeed_video_write(video, VE_TGS_0, val);
 	} else if (video->input == VIDEO_INPUT_MEM) {
 		aspeed_video_write(video, VE_TGS_0, _make_addr(video->dbg_src.dma));
-	} else if (video->version == 7 && video->id == 1) {
+	} else if (video->version == 7 && !IS_ERR(video->vga_base)) {
 		// 2700-A0 VE1 auto NG. Manually setup registers.
 		u32 val, offset;
 		u64 addr;
@@ -1735,7 +1735,7 @@ static void aspeed_video_update_regs(struct aspeed_video *video)
 	else
 		aspeed_video_update(video, VE_BCD_CTRL, VE_BCD_CTRL_EN_BCD, 0);
 
-	if (video->input == VIDEO_INPUT_VGA && video->id == 0)
+	if (video->input == VIDEO_INPUT_VGA && IS_ERR(video->vga_base))
 		ctrl |= VE_CTRL_AUTO_OR_CURSOR;
 
 	if (video->input == VIDEO_INPUT_DVI)
@@ -1833,7 +1833,7 @@ static void aspeed_video_init_regs(struct aspeed_video *video)
 				   FIELD_PREP(VE_MODE_DT_EDG_THROD, 0x65));
 
 	// 2700-A0 VE1 need VE0's registers, 04 and 08, setup to work
-	if (video->version == 7 && video->id == 1) {
+	if (video->version == 7 && !IS_ERR(video->video0)) {
 		regmap_read(video->video0, VE_PROTECTION_KEY, &val);
 		if (val == 0) {
 			regmap_write(video->video0, VE_PROTECTION_KEY, VE_PROTECTION_KEY_UNLOCK);
@@ -1973,7 +1973,12 @@ static int aspeed_video_set_input(struct file *file, void *fh, unsigned int i)
 		return -EINVAL;
 
 	if (IS_ERR(video->scu)) {
-		v4l2_dbg(1, debug, &video->v4l2_dev, "%s: scu isn't ready for input-control\n", __func__);
+		v4l2_err(&video->v4l2_dev, "%s: scu isn't ready for input-control\n", __func__);
+		return -EINVAL;
+	}
+
+	if (IS_ERR(video->gfx) && i == VIDEO_INPUT_GFX) {
+		v4l2_err(&video->v4l2_dev, "%s: gfx isn't ready for GFX input\n", __func__);
 		return -EINVAL;
 	}
 
@@ -2782,24 +2787,9 @@ static int aspeed_video_init(struct aspeed_video *video)
 	struct device *dev = video->dev;
 	unsigned int mask_size = (video->version >= 7) ? 64 : 32;
 
-	if (video->version >= 6) {
-		video->scu = syscon_regmap_lookup_by_phandle(dev->of_node,
-							     "aspeed,scu");
-		video->gfx = aspeed_regmap_lookup(dev->of_node, "aspeed,gfx");
-		if (video->version == 7 && video->id == 1) {
-			video->video0 = aspeed_regmap_lookup(dev->of_node,
-							     "aspeed,video0");
-			if (IS_ERR(video->video0))
-				dev_err(dev, "can't find regmap for video0");
-		}
-		if (IS_ERR(video->scu))
-			dev_err(dev, "can't find regmap for scu");
-		if (IS_ERR(video->gfx))
-			dev_err(dev, "can't find regmap for gfx");
-	} else {
-		video->scu = ERR_PTR(-ENODEV);
-		video->gfx = ERR_PTR(-ENODEV);
-	}
+	video->scu = syscon_regmap_lookup_by_phandle(dev->of_node, "aspeed,scu");
+	video->gfx = aspeed_regmap_lookup(dev->of_node, "aspeed,gfx");
+	video->video0 = aspeed_regmap_lookup(dev->of_node, "aspeed,video0");
 
 	irq = irq_of_parse_and_map(dev->of_node, 0);
 	if (!irq) {
@@ -2916,8 +2906,11 @@ static int aspeed_video_probe(struct platform_device *pdev)
 	if (IS_ERR(video->base))
 		return PTR_ERR(video->base);
 
+	// workaround for ast2700-A0
 	if (video->id == 1)
 		video->vga_base = devm_platform_ioremap_resource(pdev, 1);
+	else
+		video->vga_base = ERR_PTR(-ENODEV);
 
 	config = of_device_get_match_data(&pdev->dev);
 	if (!config)
