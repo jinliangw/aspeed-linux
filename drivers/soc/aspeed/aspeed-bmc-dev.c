@@ -346,7 +346,6 @@ static int aspeed_ast2600_init(struct platform_device *pdev)
 	u32 pcie_config_ctl = SCU_PCIE_CONF_BMC_DEV_EN_IRQ |
 			      SCU_PCIE_CONF_BMC_DEV_EN_MMIO | SCU_PCIE_CONF_BMC_DEV_EN;
 	u32 scu_id;
-	int ret;
 
 	bmc_device->scu = syscon_regmap_lookup_by_phandle(dev->of_node, "aspeed,scu");
 	if (IS_ERR(bmc_device->scu)) {
@@ -390,20 +389,6 @@ static int aspeed_ast2600_init(struct platform_device *pdev)
 	       bmc_device->reg_base + ASPEED_BMC_BMC2HOST_STS);
 	writel(HOST2BMC_Q2_FULL_UNMASK |  HOST2BMC_Q1_FULL_UNMASK | HOST2BMC_ENABLE_INTB,
 	       bmc_device->reg_base + ASPEED_BMC_HOST2BMC_STS);
-
-	bmc_device->pcie_irq =  platform_get_irq(pdev, 1);
-	if (bmc_device->pcie_irq < 0) {
-		dev_warn(&pdev->dev,
-			 "platform get of pcie irq[=%d] failed!\n", bmc_device->pcie_irq);
-	} else {
-		ret = devm_request_irq(&pdev->dev, bmc_device->pcie_irq,
-				       aspeed_bmc_dev_pcie_isr, IRQF_SHARED,
-				       dev_name(&pdev->dev), bmc_device);
-		if (ret < 0) {
-			dev_warn(dev, "Failed to request PCI-E IRQ %d.\n", ret);
-			bmc_device->pcie_irq = -1;
-		}
-	}
 
 	return 0;
 }
@@ -644,6 +629,20 @@ static int aspeed_bmc_device_probe(struct platform_device *pdev)
 		goto out_free_misc;
 	}
 
+	bmc_device->pcie_irq =  platform_get_irq(pdev, 1);
+	if (bmc_device->pcie_irq < 0) {
+		dev_warn(&pdev->dev,
+			 "platform get of pcie irq[=%d] failed!\n", bmc_device->pcie_irq);
+	} else {
+		ret = devm_request_irq(&pdev->dev, bmc_device->pcie_irq,
+				       aspeed_bmc_dev_pcie_isr, IRQF_SHARED,
+				       dev_name(&pdev->dev), bmc_device);
+		if (ret < 0) {
+			dev_warn(dev, "Failed to request PCI-E IRQ %d.\n", ret);
+			bmc_device->pcie_irq = -1;
+		}
+	}
+
 	dev_info(dev, "aspeed bmc device: driver successfully loaded.\n");
 
 	return 0;
@@ -674,6 +673,7 @@ static int  aspeed_bmc_device_remove(struct platform_device *pdev)
 		sysfs_remove_bin_file(&pdev->dev.kobj, &bmc_device->queue[i].bin);
 	misc_deregister(&bmc_device->miscdev);
 	devm_free_irq(&pdev->dev, bmc_device->irq, bmc_device);
+	devm_free_irq(&pdev->dev, bmc_device->pcie_irq, bmc_device);
 
 	iounmap(bmc_device->reg_base);
 
