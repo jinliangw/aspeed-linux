@@ -517,7 +517,8 @@
 		bmc_dev0: bmc_dev@12110000 {
 			compatible = "aspeed,ast2700-bmc-device";
 			reg = <0x0 0x12110000 0x0 0xb000>;
-			interrupts = <GIC_SPI 42 IRQ_TYPE_LEVEL_HIGH>;
+			interrupts-extended = <&gic GIC_SPI 42 IRQ_TYPE_LEVEL_HIGH>,
+					      <&scu_ic0 ASPEED_AST2700_SCU_IC0_PCIE_PERST_LO_TO_HI>;
 			aspeed,config = <&pcie_config0>;
 			aspeed,device = <&pcie_device0>;
 			aspeed,e2m = <&e2m_config0>;
@@ -528,7 +529,8 @@
 		bmc_dev1: bmc_dev@12120000 {
 			compatible = "aspeed,ast2700-bmc-device";
 			reg = <0x0 0x12120000 0x0 0xb000>;
-			interrupts = <GIC_SPI 43 IRQ_TYPE_LEVEL_HIGH>;
+			interrupts-extended = <&gic GIC_SPI 43 IRQ_TYPE_LEVEL_HIGH>,
+					      <&scu_ic1 ASPEED_AST2700_SCU_IC1_PCIE_RCRST_LO_TO_HI>;
 			aspeed,config = <&pcie_config1>;
 			aspeed,device = <&pcie_device1>;
 			aspeed,e2m = <&e2m_config1>;
