@@ -219,6 +219,9 @@
 #define SCU_CLK_SEL			0x288
 #define  SCU_SOC_DISPLAY_SEL		GENMASK(17, 12)
 
+#define SCU_CLK_SEL2			0x304
+#define  SCU_VIDEO_OUTPUT_DELAY		GENMASK(5, 0)
+
 #define SCU_CRT2CLK			0x350
 #define  SCU_CRT2CLK_N			GENMASK(31, 16)
 #define  SCU_CRT2CLK_R			GENMASK(15, 0)
@@ -2011,6 +2014,9 @@ static int aspeed_video_set_input(struct file *file, void *fh, unsigned int i)
 			regmap_update_bits(video->scu, SCU_MULTI_FUNC_15,
 					   SCU_MULTI_FUNC_IO_SLI_DIR,
 					   SCU_MULTI_FUNC_IO_SLI_DIR);
+			regmap_update_bits(video->scu, SCU_CLK_SEL2,
+					   SCU_VIDEO_OUTPUT_DELAY,
+					   4);
 		} else {
 			regmap_update_bits(video->scu, SCU_MULTI_FUNC_12,
 					   SCU_MULTI_FUNC_CPU_SLI_DIR,
