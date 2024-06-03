@@ -236,6 +236,16 @@ void mipi_i3c_hci_hj_ctrl(struct i3c_hci *hci, bool ack_nack)
 
 void mipi_i3c_hci_resume(struct i3c_hci *hci)
 {
+	int ret;
+	u32 ctrl;
+
+	ret = readx_poll_timeout_atomic(reg_read, HC_CONTROL, ctrl,
+					(ctrl & HC_CONTROL_RESUME), 0, 1000000);
+	if (ret) {
+		dev_err(&hci->master.dev,
+			"Error %d: Wait controller enter halt\n", ret);
+		return;
+	}
 	reg_set(HC_CONTROL, HC_CONTROL_RESUME);
 }
 
