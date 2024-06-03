@@ -267,7 +267,8 @@ static int i3c_hci_enable_hotjoin(struct i3c_master_controller *m)
 	struct i3c_hci *hci = to_i3c_hci(m);
 	int ret;
 
-	ret = hci->io->request_hj(hci);
+	if (hci->io->request_hj)
+		ret = hci->io->request_hj(hci);
 	mipi_i3c_hci_hj_ctrl(hci, true);
 
 	return ret;
@@ -277,7 +278,8 @@ static int i3c_hci_disable_hotjoin(struct i3c_master_controller *m)
 {
 	struct i3c_hci *hci = to_i3c_hci(m);
 
-	hci->io->free_hj(hci);
+	if (hci->io->free_hj)
+		hci->io->free_hj(hci);
 	mipi_i3c_hci_hj_ctrl(hci, false);
 	return 0;
 }
