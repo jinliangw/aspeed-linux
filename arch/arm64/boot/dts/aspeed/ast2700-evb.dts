@@ -848,6 +848,11 @@
 	memory-region = <&bmc_dev0_memory>;
 };
 
+&xdma0 {
+	status = "okay";
+	memory-region = <&xdma_memory0>;
+};
+
 &pcie_vuart0 {
 	port = <0x3f8>;
 	sirq = <4>;
@@ -896,6 +901,11 @@
 &bmc_dev1 {
 	status = "okay";
 	memory-region = <&bmc_dev1_memory>;
+};
+
+&xdma1 {
+	status = "okay";
+	memory-region = <&xdma_memory1>;
 };
 
 &pcie_vuart2 {
