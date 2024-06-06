@@ -941,15 +941,15 @@ static int ast2700_soc0_clk_init(struct device_node *soc0_node)
 		switch ((val & GENMASK(3, 2)) >> 2) {
 		case 1:
 			clks[AST2700_SOC0_CLK_HPLL] =
-				clk_hw_register_fixed_rate(NULL, "soc0-hpll", NULL, 0, 1900000);
+				clk_hw_register_fixed_rate(NULL, "soc0-hpll", NULL, 0, 1900000000);
 			break;
 		case 2:
 			clks[AST2700_SOC0_CLK_HPLL] =
-				clk_hw_register_fixed_rate(NULL, "soc0-hpll", NULL, 0, 1800000);
+				clk_hw_register_fixed_rate(NULL, "soc0-hpll", NULL, 0, 1800000000);
 			break;
 		case 3:
 			clks[AST2700_SOC0_CLK_HPLL] =
-				clk_hw_register_fixed_rate(NULL, "soc0-hpll", NULL, 0, 1700000);
+				clk_hw_register_fixed_rate(NULL, "soc0-hpll", NULL, 0, 1700000000);
 			break;
 		}
 	} else {
