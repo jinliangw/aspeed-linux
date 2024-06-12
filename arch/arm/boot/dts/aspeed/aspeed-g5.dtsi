@@ -372,6 +372,7 @@
 				interrupts = <40>;
 				reg = <0x1e780200 0x0100>;
 				clocks = <&syscon ASPEED_CLK_APB>;
+				#interrupt-cells = <2>;
 				interrupt-controller;
 				bus-frequency = <12000000>;
 				pinctrl-names = "default";
@@ -609,7 +610,6 @@
 	i2c0: i2c-bus@40 {
 		#address-cells = <1>;
 		#size-cells = <0>;
-		#interrupt-cells = <1>;
 
 		reg = <0x40 0x40>;
 		compatible = "aspeed,ast2500-i2c-bus";
@@ -625,7 +625,6 @@
 	i2c1: i2c-bus@80 {
 		#address-cells = <1>;
 		#size-cells = <0>;
-		#interrupt-cells = <1>;
 
 		reg = <0x80 0x40>;
 		compatible = "aspeed,ast2500-i2c-bus";
@@ -641,7 +640,6 @@
 	i2c2: i2c-bus@c0 {
 		#address-cells = <1>;
 		#size-cells = <0>;
-		#interrupt-cells = <1>;
 
 		reg = <0xc0 0x40>;
 		compatible = "aspeed,ast2500-i2c-bus";
@@ -658,7 +656,6 @@
 	i2c3: i2c-bus@100 {
 		#address-cells = <1>;
 		#size-cells = <0>;
-		#interrupt-cells = <1>;
 
 		reg = <0x100 0x40>;
 		compatible = "aspeed,ast2500-i2c-bus";
@@ -675,7 +672,6 @@
 	i2c4: i2c-bus@140 {
 		#address-cells = <1>;
 		#size-cells = <0>;
-		#interrupt-cells = <1>;
 
 		reg = <0x140 0x40>;
 		compatible = "aspeed,ast2500-i2c-bus";
@@ -692,7 +688,6 @@
 	i2c5: i2c-bus@180 {
 		#address-cells = <1>;
 		#size-cells = <0>;
-		#interrupt-cells = <1>;
 
 		reg = <0x180 0x40>;
 		compatible = "aspeed,ast2500-i2c-bus";
@@ -709,7 +704,6 @@
 	i2c6: i2c-bus@1c0 {
 		#address-cells = <1>;
 		#size-cells = <0>;
-		#interrupt-cells = <1>;
 
 		reg = <0x1c0 0x40>;
 		compatible = "aspeed,ast2500-i2c-bus";
@@ -726,7 +720,6 @@
 	i2c7: i2c-bus@300 {
 		#address-cells = <1>;
 		#size-cells = <0>;
-		#interrupt-cells = <1>;
 
 		reg = <0x300 0x40>;
 		compatible = "aspeed,ast2500-i2c-bus";
@@ -743,7 +736,6 @@
 	i2c8: i2c-bus@340 {
 		#address-cells = <1>;
 		#size-cells = <0>;
-		#interrupt-cells = <1>;
 
 		reg = <0x340 0x40>;
 		compatible = "aspeed,ast2500-i2c-bus";
@@ -760,7 +752,6 @@
 	i2c9: i2c-bus@380 {
 		#address-cells = <1>;
 		#size-cells = <0>;
-		#interrupt-cells = <1>;
 
 		reg = <0x380 0x40>;
 		compatible = "aspeed,ast2500-i2c-bus";
@@ -777,7 +768,6 @@
 	i2c10: i2c-bus@3c0 {
 		#address-cells = <1>;
 		#size-cells = <0>;
-		#interrupt-cells = <1>;
 
 		reg = <0x3c0 0x40>;
 		compatible = "aspeed,ast2500-i2c-bus";
@@ -794,7 +784,6 @@
 	i2c11: i2c-bus@400 {
 		#address-cells = <1>;
 		#size-cells = <0>;
-		#interrupt-cells = <1>;
 
 		reg = <0x400 0x40>;
 		compatible = "aspeed,ast2500-i2c-bus";
@@ -811,7 +800,6 @@
 	i2c12: i2c-bus@440 {
 		#address-cells = <1>;
 		#size-cells = <0>;
-		#interrupt-cells = <1>;
 
 		reg = <0x440 0x40>;
 		compatible = "aspeed,ast2500-i2c-bus";
@@ -828,7 +816,6 @@
 	i2c13: i2c-bus@480 {
 		#address-cells = <1>;
 		#size-cells = <0>;
-		#interrupt-cells = <1>;
 
 		reg = <0x480 0x40>;
 		compatible = "aspeed,ast2500-i2c-bus";
