@@ -684,6 +684,7 @@
 
 &can0 {
 	status = "okay";
+	can-stb-mode;
 };
 
 &emmc_controller {
