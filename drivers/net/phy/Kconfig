@@ -96,6 +96,11 @@ config ADIN1100_PHY
 	  Currently supports the:
 	  - ADIN1100 - Robust,Industrial, Low Power 10BASE-T1L Ethernet PHY
 
+config AIROHA_AN8801_PHY
+	tristate "Airoha PHYs"
+	help
+	  Currently supports the Airoha AN8801R PHY.
+
 config AQUANTIA_PHY
 	tristate "Aquantia PHYs"
 	help
