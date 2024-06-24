@@ -289,7 +289,10 @@ static void ast_vhub_remove(struct platform_device *pdev)
 
 	if (vhub->clk)
 		clk_disable_unprepare(vhub->clk);
-
+#ifdef CONFIG_MACH_ASPEED_G7
+	if (vhub->rst)
+		reset_control_assert(vhub->rst);
+#endif
 	spin_unlock_irqrestore(&vhub->lock, flags);
 
 	if (vhub->ep0_bufs)
@@ -352,6 +355,17 @@ static int ast_vhub_probe(struct platform_device *pdev)
 
 	platform_set_drvdata(pdev, vhub);
 
+#ifdef CONFIG_MACH_ASPEED_G7
+	vhub->rst = devm_reset_control_get_exclusive(&pdev->dev, NULL);
+
+	if (IS_ERR(vhub->rst)) {
+		rc = PTR_ERR(vhub->rst);
+		goto err;
+	}
+	rc = reset_control_assert(vhub->rst);
+	if (rc)
+		goto err;
+#endif
 	vhub->clk = devm_clk_get(&pdev->dev, NULL);
 	if (IS_ERR(vhub->clk)) {
 		rc = PTR_ERR(vhub->clk);
@@ -363,12 +377,6 @@ static int ast_vhub_probe(struct platform_device *pdev)
 		goto err;
 	}
 #ifdef CONFIG_MACH_ASPEED_G7
-	vhub->rst = devm_reset_control_get_shared(&pdev->dev, NULL);
-	if (IS_ERR(vhub->rst)) {
-		rc = PTR_ERR(vhub->rst);
-		goto err;
-	}
-
 	mdelay(10);
 	rc = reset_control_deassert(vhub->rst);
 	if (rc)
