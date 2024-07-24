@@ -44,4 +44,16 @@ config I3C_MUX_IMX3102
 
 source "drivers/i3c/mctp/Kconfig"
 source "drivers/i3c/master/Kconfig"
+
+config I3C_RENESAS_RG3MXXB12B0
+	depends on I3C
+	depends on I2C # todo: could be a sub-config for no-i2c cases
+	select REGMAP_I3C
+	tristate "Renesas RG3MxxB12B0 I3C hub device support"
+	help
+	  Renesata RG3MXXB12B0 I3C hub device driver.
+
+	  Provides basic control of the hub, for i2c SMBus agent support
+	  only, exposed as an i2c controller.
+
 endif # I3C
