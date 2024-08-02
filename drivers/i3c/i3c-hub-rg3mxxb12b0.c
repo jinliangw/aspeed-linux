@@ -9,9 +9,11 @@
 
 #include <linux/i3c/device.h>
 #include <linux/i3c/master.h>
+#include <linux/of_address.h>
 #include <linux/regmap.h>
 
 #define RG3M_PORT_MAX	8
+#define RG3M_BUF_SIZE	80
 
 #define RG3M_REG_DEV_INFO0		0
 #define RG3M_REG_DEV_INFO1		1
@@ -65,6 +67,7 @@ struct rg3m_port {
 		RG3M_PORT_MODE_AGENT,
 	} mode;
 	struct rg3m_i2c_agent *agent;
+	struct device_node *of_node;
 };
 
 struct rg3m {
@@ -124,6 +127,10 @@ struct rg3m_i2c_agent {
 	struct rg3m *rg3m;
 	struct i2c_adapter i2c;
 	unsigned int port;
+
+	/* target handling */
+	struct i2c_client *client;
+	u8 target_rx_buf[RG3M_BUF_SIZE];
 
 	/* protects tx_res */
 	spinlock_t lock;
@@ -236,6 +243,75 @@ static int rg3m_agent_i2c_xfer_one(struct rg3m_i2c_agent *agent,
 	return rc;
 }
 
+static void rg3m_agent_target_rx(struct rg3m_i2c_agent *agent, unsigned int n)
+{
+	struct {
+		u8 len;
+		u8 addr;
+	} hdr;
+	struct rg3m *rg3m = agent->rg3m;
+	u8 tmp, len, addr;
+	unsigned int i, page;
+	int rc;
+
+	if (!agent->client)
+		goto ack;
+
+	page = n ? RG3M_PAGE_AGENT_RX1(agent->port) :
+		RG3M_PAGE_AGENT_RX0(agent->port);
+
+	/* We need the length to figure out the size of our read. But we also
+	 * read the first byte of i2c data in the same read; the hardware has
+	 * no facility for filtering on incoming local addresses, so we have a
+	 * fast-path to aborting the transaction if it's not targeted to us.
+	 */
+	rc = rg3m_read_paged(rg3m, page, 0, &hdr, sizeof(hdr));
+	if (rc)
+		goto ack;
+
+	len = min(hdr.len, RG3M_BUF_SIZE);
+	if (len == 0)
+		goto ack;
+
+	if (hdr.addr & 0x1) {
+		dev_dbg(&rg3m->i3c->dev, "unsupported read requested\n");
+		goto ack;
+	}
+
+	/* not for us? discard and ack */
+	addr = hdr.addr >> 1;
+	if (addr != (agent->client->addr & 0x7f))
+		goto ack;
+
+	memset(agent->target_rx_buf, 0, sizeof(agent->target_rx_buf));
+	rc = rg3m_read_paged(rg3m, page, 2, agent->target_rx_buf, len);
+	if (rc)
+		goto ack;
+
+	/* synthesize i2c target events from the target write */
+	tmp = 0;
+	rc = i2c_slave_event(agent->client, I2C_SLAVE_WRITE_REQUESTED, &tmp);
+	if (rc)
+		goto stop;
+
+	/* len includes the address byte, which we have already read */
+	for (i = 0; i < len - 1; i++) {
+		tmp = agent->target_rx_buf[i];
+		i2c_slave_event(agent->client, I2C_SLAVE_WRITE_RECEIVED, &tmp);
+	}
+
+stop:
+	tmp = 0;
+	i2c_slave_event(agent->client, I2C_SLAVE_STOP, &tmp);
+
+ack:
+	tmp = n ? RG3M_REG_AGENT_CNTRL_STATUS_RX_BUF1 :
+		RG3M_REG_AGENT_CNTRL_STATUS_RX_BUF0;
+
+	regmap_write(rg3m->regmap, RG3M_REG_AGENT_CNTLR_STATUS + agent->port,
+		     tmp);
+}
+
 static void rg3m_agent_ibi(struct rg3m_i2c_agent *agent)
 {
 	struct rg3m *rg3m = agent->rg3m;
@@ -249,13 +325,26 @@ static void rg3m_agent_ibi(struct rg3m_i2c_agent *agent)
 	if (rc)
 		return;
 
-	if (!(stat & RG3M_REG_AGENT_CNTRL_STATUS_FINISH))
-		return;
+	if (stat & RG3M_REG_AGENT_CNTRL_STATUS_FINISH) {
+		spin_lock_irqsave(&agent->lock, flags);
+		agent->tx_res = stat;
+		complete(&agent->completion);
+		spin_unlock_irqrestore(&agent->lock, flags);
+	}
 
-	spin_lock_irqsave(&agent->lock, flags);
-	agent->tx_res = stat;
-	complete(&agent->completion);
-	spin_unlock_irqrestore(&agent->lock, flags);
+	if (stat & RG3M_REG_AGENT_CNTRL_STATUS_RX_BUF0)
+		rg3m_agent_target_rx(agent, 0);
+
+	if (stat & RG3M_REG_AGENT_CNTRL_STATUS_RX_BUF1)
+		rg3m_agent_target_rx(agent, 1);
+
+	if (stat & RG3M_REG_AGENT_CNTRL_STATUS_RX_BUF_OVF) {
+		dev_warn(&agent->i2c.dev, "rx overflow\n");
+		regmap_write(rg3m->regmap,
+			     RG3M_REG_AGENT_CNTLR_STATUS + agent->port,
+			     RG3M_REG_AGENT_CNTRL_STATUS_RX_BUF_OVF);
+	}
+
 }
 
 static int rg3m_agent_i2c_xfer(struct i2c_adapter *i2c, struct i2c_msg *msgs,
@@ -276,9 +365,34 @@ static int rg3m_agent_i2c_xfer(struct i2c_adapter *i2c, struct i2c_msg *msgs,
 	return n_msgs;
 }
 
-static int rg3m_agent_i2c_reg_target(struct i2c_client *i2c)
+static int rg3m_agent_set_target_addr(struct rg3m_i2c_agent *agent, u8 addr)
 {
-	/* todo */
+	struct rg3m *rg3m = agent->rg3m;
+
+	rg3m_write_paged_u8(rg3m, RG3M_PAGE_AGENT_ADDRS(agent->port),
+			    0, 0);
+	return 0;
+}
+
+static int rg3m_agent_i2c_reg_target(struct i2c_client *client)
+{
+	struct rg3m_i2c_agent *agent = i2c_get_adapdata(client->adapter);
+
+	if (agent->client)
+		return -EBUSY;
+
+	agent->client = client;
+
+	return rg3m_agent_set_target_addr(agent, (client->addr & 0x7f) << 1);
+}
+
+static int rg3m_agent_i2c_unreg_target(struct i2c_client *client)
+{
+	struct rg3m_i2c_agent *agent = i2c_get_adapdata(client->adapter);
+
+	agent->client = NULL;
+	rg3m_agent_set_target_addr(agent, 0);
+
 	return 0;
 }
 
@@ -290,8 +404,35 @@ static u32 rg3m_agent_i2c_functionality(struct i2c_adapter *i2c)
 static const struct i2c_algorithm rg3m_i2c_algo = {
 	.xfer = rg3m_agent_i2c_xfer,
 	.reg_target = rg3m_agent_i2c_reg_target,
+	.unreg_target = rg3m_agent_i2c_unreg_target,
 	.functionality = rg3m_agent_i2c_functionality,
 };
+
+static struct device_node *rg3m_find_port_node(struct rg3m *rg3m,
+					       unsigned int port_nr)
+{
+	struct device_node *parent, *np;
+	u64 addr;
+	int rc;
+
+	parent = rg3m->i3c->dev.of_node;
+	if (!parent)
+		return NULL;
+
+	for_each_available_child_of_node(parent, np) {
+		if (!of_device_is_compatible(np, "renesas,rg3mxxb12b0-port"))
+			continue;
+
+		rc = of_property_read_reg(np, 0, &addr, NULL);
+		if (rc)
+			continue;
+
+		if (addr == port_nr)
+			return np;
+	}
+
+	return NULL;
+}
 
 static int rg3m_port_init_smbus_agent(struct rg3m *rg3m, struct rg3m_port *port,
 				      unsigned int port_nr)
@@ -329,8 +470,13 @@ static int rg3m_port_init_smbus_agent(struct rg3m *rg3m, struct rg3m_port *port,
 	agent->i2c.owner = THIS_MODULE;
 	agent->i2c.algo = &rg3m_i2c_algo;
 	agent->i2c.dev.parent = &rg3m->i3c->dev;
-	/* todo: of_node */
-	snprintf(agent->i2c.name, sizeof(agent->i2c.name), "port%d", port_nr);
+	if (port->of_node) {
+		strscpy(agent->i2c.name, port->of_node->name,
+			sizeof(agent->i2c.name));
+		agent->i2c.dev.of_node = port->of_node;
+	} else {
+		snprintf(agent->i2c.name, sizeof(agent->i2c.name), "port%d", port_nr);
+	}
 	i2c_set_adapdata(&agent->i2c, agent);
 
 	rc = i2c_add_adapter(&agent->i2c);
@@ -411,6 +557,7 @@ static int rg3m_port_init(struct rg3m *rg3m, unsigned int port_nr)
 
 	port = &rg3m->ports[port_nr];
 	port_mask = 1u << port_nr;
+	port->of_node = rg3m_find_port_node(rg3m, port_nr);
 
 	/* everytyhing is an SMBus Agent */
 	port->mode = RG3M_PORT_MODE_AGENT;
