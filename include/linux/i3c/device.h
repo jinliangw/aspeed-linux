@@ -204,6 +204,13 @@ struct i3c_device;
 		.dcr = _dcr,						\
 	}
 
+#define I3C_VENDOR_CLASS(_manuf, _dcr, _drvdata)			\
+	{								\
+		.match_flags = I3C_MATCH_DCR | I3C_MATCH_MANUF,		\
+		.manuf_id = _manuf,					\
+		.dcr = _dcr,						\
+	}
+
 /**
  * struct i3c_driver - I3C device driver
  * @driver: inherit from device_driver
