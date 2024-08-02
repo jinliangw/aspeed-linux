@@ -2445,7 +2445,7 @@ of_i3c_master_add_i3c_boardinfo(struct i3c_master_controller *master,
 	boardinfo->pid = ((u64)reg[1] << 32) | reg[2];
 
 	if ((boardinfo->pid & GENMASK_ULL(63, 48)) ||
-	    I3C_PID_RND_LOWER_32BITS(boardinfo->pid))
+		(FALSE && I3C_PID_RND_LOWER_32BITS(boardinfo->pid)))
 		return -EINVAL;
 
 	if (!of_property_read_u8(node, "dcr", &dcr)) {
