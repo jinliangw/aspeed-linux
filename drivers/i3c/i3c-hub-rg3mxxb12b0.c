@@ -505,17 +505,21 @@ static void rg3m_ibi(struct i3c_device *i3c,
 		p = payload->data;
 
 	if (!p || ibi_paranoia) {
+		unsigned char tmp[2];
 		int rc;
 
-		rc = regmap_read(rg3m->regmap, RG3M_REG_DEV_PORT_STATUS,
-				 &dev_stat);
+		/* DEV_PORT_STATUS and TARGET_STATUS are contiguous,
+		 * read as a bulk operation */
+		BUILD_BUG_ON(RG3M_REG_TARGET_STATUS !=
+			     RG3M_REG_DEV_PORT_STATUS + 1);
+
+		rc = regmap_bulk_read(rg3m->regmap, RG3M_REG_DEV_PORT_STATUS,
+				      tmp, 2);
 		if (rc)
 			return;
 
-		rc = regmap_read(rg3m->regmap, RG3M_REG_TARGET_STATUS,
-				 &target_stat);
-		if (rc)
-			return;
+		dev_stat = tmp[0];
+		target_stat = tmp[1];
 
 		if (p && (p->dev_port_status != dev_stat ||
 			  p->target_agent_status != target_stat)) {
