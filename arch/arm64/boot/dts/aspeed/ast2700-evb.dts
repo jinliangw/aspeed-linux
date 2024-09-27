@@ -486,8 +486,29 @@
 };
 
 &i3c5 {
-	initial-role = "primary";
-	status = "okay";
+    initial-role = "primary";
+    status = "okay";
+
+    hub@0,4cdaab3c119 {
+        reg = <0x0 0x4cd 0xaab3c119>;
+        compatible = "renesas,rg3m88b12b0";
+        #address-cells = <1>;
+        #size-cells = <0>;
+
+        port@0 {
+            compatible = "renesas,rg3mxxb12b0-port";
+            reg = <0>;
+            #address-cells = <1>;
+            #size-cells = <0>;
+            mctp-controller;
+
+            mctp@10 {
+                compatible = "mctp-i2c-controller";
+                reg = <(0x10 | I2C_OWN_SLAVE_ADDRESS)>;
+            };
+
+        };
+    };
 };
 
 &i3c6 {
