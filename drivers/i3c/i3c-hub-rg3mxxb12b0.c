@@ -661,6 +661,8 @@ static int rg3m_probe(struct i3c_device *i3c)
 	struct rg3m *rg3m;
 	int rc;
 
+	printk(KERN_NOTICE "rg3m_probe");
+
 	id = i3c_device_match_id(i3c, rg3m_i3c_ids);
 	if (!id)
 		return -ENODEV;

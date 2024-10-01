@@ -1039,6 +1039,7 @@ static int i3c_hci_init(struct i3c_hci *hci)
 	hci->version_major = (regval >> 8) & 0xf;
 	hci->version_minor = (regval >> 4) & 0xf;
 	hci->revision = regval & 0xf;
+	printk(KERN_NOTICE "i3c_hci_init");
 	dev_notice(&hci->master.dev, "MIPI I3C HCI v%u.%u r%02u\n",
 		   hci->version_major, hci->version_minor, hci->revision);
 	/* known versions */
